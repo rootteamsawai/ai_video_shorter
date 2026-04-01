@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { PunchlineExtractionResult, TranscriptChunk } from "@/types";
+import type {
+  PunchlineExtractionResult,
+  TranscriptChunk,
+  Segment,
+} from "@/types";
 import { formatTranscript } from "./whisper";
+import { timeToSeconds } from "./ffmpeg";
 
 let anthropicClient: Anthropic | null = null;
 
@@ -98,5 +103,24 @@ JSONのみを出力してください。説明は不要です。
     throw new Error("Invalid response format: segments array is missing");
   }
 
-  return result;
+  // 各セグメントに対応する字幕データを紐付け
+  const segmentsWithSubtitles: Segment[] = result.segments.map((segment) => {
+    const startSeconds = timeToSeconds(segment.start);
+    const endSeconds = timeToSeconds(segment.end);
+
+    // セグメントの時間範囲に重なるチャンクを抽出
+    const subtitles = chunks.filter(
+      (chunk) => chunk.end > startSeconds && chunk.start < endSeconds
+    );
+
+    return {
+      ...segment,
+      subtitles,
+    };
+  });
+
+  return {
+    ...result,
+    segments: segmentsWithSubtitles,
+  };
 }

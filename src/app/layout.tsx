@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Sidebar } from "@/components/sidebar";
 
 export const metadata: Metadata = {
   title: "Seminar Digest",
@@ -14,12 +15,13 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body className="min-h-screen bg-gray-50">
-        <header className="bg-white border-b border-gray-200">
-          <div className="max-w-4xl mx-auto px-4 py-4">
-            <h1 className="text-xl font-bold text-gray-900">Seminar Digest</h1>
+        <Sidebar />
+        {/* PC: サイドバー分の余白を確保 */}
+        <main className="md:ml-60 min-h-screen">
+          <div className="max-w-4xl mx-auto px-4 py-8 pt-16 md:pt-8">
+            {children}
           </div>
-        </header>
-        <main className="max-w-4xl mx-auto px-4 py-8">{children}</main>
+        </main>
       </body>
     </html>
   );

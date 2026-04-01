@@ -24,7 +24,14 @@ export const processVideo = inngest.createFunction(
         const videoPath = getOriginalVideoPath(jobId);
         const jobDir = getJobDir(jobId);
 
-        const result = await transcribeVideo(videoPath, jobDir);
+        // 分割処理時は進捗を細かく更新（10% → 40% の範囲で）
+        const result = await transcribeVideo(videoPath, jobDir, async (current, total) => {
+          if (total > 1) {
+            // 10% から 40% の範囲で進捗を計算
+            const progress = 10 + Math.floor((current / total) * 30);
+            await updateJobStatus(jobId, "transcribing", progress);
+          }
+        });
 
         await updateJobStatus(jobId, "transcribing", 40);
 

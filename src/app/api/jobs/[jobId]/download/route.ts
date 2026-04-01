@@ -8,7 +8,7 @@ type RouteParams = {
   params: Promise<{ jobId: string }>;
 };
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   const { jobId } = await params;
 
   const job = await getJob(jobId);
@@ -34,13 +34,64 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   }
 
   const stats = await stat(digestPath);
-  const stream = createReadStream(digestPath);
+  const fileSize = stats.size;
+  const rangeHeader = request.headers.get("range");
 
-  // Node.js の Readable を Web ReadableStream に変換
-  const webStream = new ReadableStream({
+  // Range リクエストの処理（シーク対応）
+  if (rangeHeader) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize || start > end) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: {
+            "Content-Range": `bytes */${fileSize}`,
+          },
+        });
+      }
+
+      const chunkSize = end - start + 1;
+      const stream = createReadStream(digestPath, { start, end });
+      const webStream = nodeStreamToWeb(stream);
+
+      return new NextResponse(webStream, {
+        status: 206,
+        headers: {
+          "Content-Type": "video/mp4",
+          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+          "Content-Length": chunkSize.toString(),
+          "Accept-Ranges": "bytes",
+        },
+      });
+    }
+  }
+
+  // Range なしの場合は全体を返す
+  const stream = createReadStream(digestPath);
+  const webStream = nodeStreamToWeb(stream);
+
+  return new NextResponse(webStream, {
+    status: 200,
+    headers: {
+      "Content-Type": "video/mp4",
+      "Content-Disposition": `attachment; filename="digest-${jobId}.mp4"`,
+      "Content-Length": fileSize.toString(),
+      "Accept-Ranges": "bytes",
+    },
+  });
+}
+
+function nodeStreamToWeb(
+  stream: ReturnType<typeof createReadStream>
+): ReadableStream<Uint8Array> {
+  return new ReadableStream({
     start(controller) {
-      stream.on("data", (chunk) => {
-        controller.enqueue(chunk);
+      stream.on("data", (chunk: Buffer | string) => {
+        const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+        controller.enqueue(new Uint8Array(buffer));
       });
       stream.on("end", () => {
         controller.close();
@@ -51,15 +102,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     },
     cancel() {
       stream.destroy();
-    },
-  });
-
-  return new NextResponse(webStream, {
-    status: 200,
-    headers: {
-      "Content-Type": "video/mp4",
-      "Content-Disposition": `attachment; filename="digest-${jobId}.mp4"`,
-      "Content-Length": stats.size.toString(),
     },
   });
 }

@@ -52,13 +52,19 @@ async function transcribeAudioFile(
   }));
 }
 
+export type TranscribeProgressCallback = (
+  current: number,
+  total: number
+) => void | Promise<void>;
+
 /**
  * 動画ファイルを文字起こしする
  * 長い動画は自動的に分割して処理する
  */
 export async function transcribeVideo(
   videoPath: string,
-  jobDir: string
+  jobDir: string,
+  onProgress?: TranscribeProgressCallback
 ): Promise<TranscriptChunk[]> {
   const audioPath = path.join(jobDir, "audio.mp3");
 
@@ -82,7 +88,14 @@ export async function transcribeVideo(
   const allChunks: TranscriptChunk[] = [];
   let offsetSeconds = 0;
 
-  for (const chunkPath of chunkPaths) {
+  for (let i = 0; i < chunkPaths.length; i++) {
+    const chunkPath = chunkPaths[i];
+
+    // 進捗を通知（処理開始前）
+    if (onProgress) {
+      await onProgress(i, chunkPaths.length);
+    }
+
     const chunks = await transcribeAudioFile(chunkPath, offsetSeconds);
     allChunks.push(...chunks);
 
@@ -92,6 +105,11 @@ export async function transcribeVideo(
 
     // 一時ファイルを削除
     await fs.unlink(chunkPath).catch(() => {});
+  }
+
+  // 最後の進捗を通知（全チャンク完了）
+  if (onProgress) {
+    await onProgress(chunkPaths.length, chunkPaths.length);
   }
 
   // チャンクディレクトリを削除

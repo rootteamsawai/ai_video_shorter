@@ -24,6 +24,7 @@ export type Segment = {
   end: string; // "HH:MM:SS" format
   reason: string;
   quote: string;
+  subtitles?: TranscriptChunk[]; // 対応する字幕データ
 };
 
 /** 文字起こしチャンク */

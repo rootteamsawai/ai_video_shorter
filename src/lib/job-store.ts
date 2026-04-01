@@ -124,3 +124,44 @@ export async function deleteJob(jobId: string): Promise<void> {
     // ディレクトリが存在しない場合は無視
   }
 }
+
+/**
+ * 全ジョブを取得する（作成日時の降順）
+ */
+export async function getAllJobs(): Promise<Job[]> {
+  const jobsDir = path.join(STORAGE_PATH, "jobs");
+
+  try {
+    const entries = await fs.readdir(jobsDir, { withFileTypes: true });
+    const jobs: Job[] = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const jobFilePath = path.join(jobsDir, entry.name, "job.json");
+        try {
+          const data = await fs.readFile(jobFilePath, "utf-8");
+          jobs.push(JSON.parse(data) as Job);
+        } catch (err) {
+          // ENOENT（ファイル不在）以外のエラーはログ出力
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            console.error(`Failed to read job file: ${jobFilePath}`, err);
+          }
+        }
+      }
+    }
+
+    // 作成日時の降順でソート
+    jobs.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    return jobs;
+  } catch (err) {
+    // ENOENT（ディレクトリ不在）以外のエラーはログ出力
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error("Failed to read jobs directory:", err);
+    }
+    return [];
+  }
+}
