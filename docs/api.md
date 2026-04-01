@@ -2,7 +2,7 @@
 
 ## Overview
 
-- 動画アップロード、ジョブ状態取得、ダイジェスト動画ダウンロードの3つのエンドポイントを提供
+- 動画アップロード、ジョブ状態取得、ダイジェスト動画・記事ダウンロードのエンドポイントを提供
 - 認証なし、レート制限なし（MVP）
 
 ## Related Docs
@@ -160,5 +160,126 @@
 ```json
 {
   "error": "Digest video file not found"
+}
+```
+
+---
+
+### GET /api/jobs/[jobId]/article
+
+ダイジェスト記事（Markdown形式）を取得する。
+
+#### Response
+
+**成功 (200)**
+
+- Content-Type: `text/markdown; charset=utf-8`
+- Body: Markdown形式の記事テキスト
+
+**エラー (400)**
+
+```json
+{
+  "error": "Article is not ready yet"
+}
+```
+
+**エラー (404)**
+
+```json
+{
+  "error": "Job not found"
+}
+```
+
+```json
+{
+  "error": "Article file not found"
+}
+```
+
+---
+
+### GET /api/jobs/[jobId]/screenshots/[filename]
+
+セグメントのスクリーンショット画像を取得する。
+
+#### Parameters
+
+- `filename`: `segment_N.jpg` 形式（N は 0 始まりのインデックス）
+
+#### Response
+
+**成功 (200)**
+
+- Content-Type: `image/jpeg`
+- Cache-Control: `public, max-age=31536000, immutable`
+- Body: JPEG画像のバイナリ
+
+**エラー (400)**
+
+```json
+{
+  "error": "Invalid filename"
+}
+```
+
+**エラー (404)**
+
+```json
+{
+  "error": "Job not found"
+}
+```
+
+```json
+{
+  "error": "Screenshot file not found"
+}
+```
+
+---
+
+### GET /api/jobs/[jobId]/article/download
+
+ダイジェスト記事とスクリーンショットをZIP形式でダウンロードする。
+
+#### Response
+
+**成功 (200)**
+
+- Content-Type: `application/zip`
+- Content-Disposition: `attachment; filename="article-{jobId}.zip"`
+- Body: ZIPファイルのバイナリストリーム
+
+ZIP構成:
+
+```
+article.md
+screenshots/
+  segment_0.jpg
+  segment_1.jpg
+  ...
+```
+
+**エラー (400)**
+
+```json
+{
+  "error": "Article is not ready yet"
+}
+```
+
+**エラー (404)**
+
+```json
+{
+  "error": "Job not found"
+}
+```
+
+```json
+{
+  "error": "Article file not found"
 }
 ```
