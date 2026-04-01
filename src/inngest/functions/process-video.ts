@@ -1,13 +1,21 @@
+import { promises as fs } from "fs";
 import { inngest } from "../client";
-import { updateJobStatus, setJobError, setJobSegments } from "@/lib/job-store";
+import {
+  updateJobStatus,
+  setJobError,
+  setJobSegments,
+  setJobArticlePath,
+} from "@/lib/job-store";
 import {
   getOriginalVideoPath,
   getDigestVideoPath,
   getJobDir,
+  getArticlePath,
 } from "@/lib/storage";
 import { transcribeVideo } from "@/lib/whisper";
 import { extractPunchlines } from "@/lib/claude";
-import { generateDigest } from "@/lib/ffmpeg";
+import { generateDigest, extractScreenshotsForSegments } from "@/lib/ffmpeg";
+import { generateArticle } from "@/lib/article";
 import type { TranscriptChunk, Segment } from "@/types";
 
 export const processVideo = inngest.createFunction(
@@ -55,14 +63,27 @@ export const processVideo = inngest.createFunction(
         return result.segments;
       });
 
-      // Step 3: ダイジェスト動画生成
+      // Step 3: ダイジェスト動画・記事生成
       await step.run("generate-digest", async () => {
         await updateJobStatus(jobId, "generating", 80);
 
         const videoPath = getOriginalVideoPath(jobId);
         const digestPath = getDigestVideoPath(jobId);
+        const typedSegments = segments as Segment[];
 
-        await generateDigest(videoPath, digestPath, segments as Segment[]);
+        // 各セグメントの開始時点でスクリーンショットを抽出
+        await extractScreenshotsForSegments(videoPath, jobId, typedSegments);
+
+        // ダイジェスト動画を生成
+        await generateDigest(videoPath, digestPath, typedSegments);
+
+        // Markdown記事を生成
+        const articleContent = generateArticle(typedSegments);
+        const articlePath = getArticlePath(jobId);
+        await fs.writeFile(articlePath, articleContent, "utf-8");
+
+        // 記事パスを保存
+        await setJobArticlePath(jobId, articlePath);
 
         await updateJobStatus(jobId, "completed", 100);
       });

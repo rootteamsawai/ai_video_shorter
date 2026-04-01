@@ -112,3 +112,24 @@ export async function getFileSize(filePath: string): Promise<number> {
   const stats = await fs.stat(filePath);
   return stats.size;
 }
+
+/**
+ * スクリーンショット保存ディレクトリのパスを取得する
+ */
+export function getScreenshotsDir(jobId: string): string {
+  return path.join(getJobDir(jobId), "screenshots");
+}
+
+/**
+ * 個別スクリーンショットファイルのパスを取得する
+ */
+export function getScreenshotPath(jobId: string, index: number): string {
+  return path.join(getScreenshotsDir(jobId), `segment_${index}.jpg`);
+}
+
+/**
+ * 記事ファイルのパスを取得する
+ */
+export function getArticlePath(jobId: string): string {
+  return path.join(getJobDir(jobId), "article.md");
+}

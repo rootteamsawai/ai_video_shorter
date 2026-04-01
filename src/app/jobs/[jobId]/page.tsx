@@ -5,6 +5,9 @@ import Link from "next/link";
 import type { Job } from "@/types";
 import { ProgressDisplay } from "@/components/progress-display";
 import { VideoPreview } from "@/components/video-preview";
+import { ArticleView } from "@/components/article-view";
+
+type Tab = "video" | "article";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -14,6 +17,7 @@ export default function JobPage({ params }: Props) {
   const { jobId } = use(params);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("video");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -82,39 +86,70 @@ export default function JobPage({ params }: Props) {
           <div className="text-center">
             <div className="text-4xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-gray-900">
-              ダイジェスト動画が完成しました！
+              ダイジェストが完成しました！
             </h2>
           </div>
 
-          <VideoPreview jobId={jobId} />
+          {/* タブ切り替え */}
+          <div className="flex justify-center border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab("video")}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === "video"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              動画
+            </button>
+            <button
+              onClick={() => setActiveTab("article")}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === "article"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              記事
+            </button>
+          </div>
 
-          {/* 抽出されたセグメント一覧 */}
-          {job.segments && job.segments.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">
-                抽出されたシーン
-              </h3>
-              <div className="space-y-4">
-                {job.segments.map((segment, index) => (
-                  <div
-                    key={index}
-                    className="border-l-4 border-blue-500 pl-4 py-2"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
-                        {segment.start} - {segment.end}
-                      </span>
-                    </div>
-                    <p className="text-gray-800 font-medium mb-1">
-                      「{segment.quote}」
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      → {segment.reason}
-                    </p>
+          {/* タブコンテンツ */}
+          {activeTab === "video" ? (
+            <>
+              <VideoPreview jobId={jobId} />
+
+              {/* 抽出されたセグメント一覧 */}
+              {job.segments && job.segments.length > 0 && (
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">
+                    抽出されたシーン
+                  </h3>
+                  <div className="space-y-4">
+                    {job.segments.map((segment, index) => (
+                      <div
+                        key={index}
+                        className="border-l-4 border-blue-500 pl-4 py-2"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
+                            {segment.start} - {segment.end}
+                          </span>
+                        </div>
+                        <p className="text-gray-800 font-medium mb-1">
+                          「{segment.quote}」
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          → {segment.reason}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <ArticleView jobId={jobId} />
           )}
 
           <div className="text-center">

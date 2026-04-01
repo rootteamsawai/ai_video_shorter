@@ -16,6 +16,7 @@ export type Job = {
   createdAt: string; // ISO 8601
   completedAt?: string; // ISO 8601
   segments?: Segment[]; // 抽出されたセグメント
+  articlePath?: string; // 記事ファイルパス
 };
 
 /** パンチライン抽出結果のセグメント */

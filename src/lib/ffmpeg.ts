@@ -2,6 +2,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { promises as fs } from "fs";
 import path from "path";
 import type { Segment, TranscriptChunk } from "@/types";
+import { getScreenshotsDir, getScreenshotPath } from "@/lib/storage";
 
 /**
  * 時間文字列（HH:MM:SS）を秒数に変換する
@@ -182,8 +183,9 @@ export async function cutVideoWithSubtitles(
   // 字幕スタイル設定
   // フォント: Noto Sans JP、サイズ: 動画高さの5%程度（FontSize=24想定）
   // 白文字 + 黒縁取り + 半透明黒背景
+  // MarginL/MarginR: 左右余白で見切れ防止、Outline: 縁取りを太めに
   const subtitleStyle =
-    "FontName=Noto Sans JP,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=4,Outline=2,Shadow=0,MarginV=30";
+    "FontName=Noto Sans JP,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=4,Outline=3,Shadow=0,MarginL=20,MarginR=20,MarginV=40";
 
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
@@ -248,6 +250,50 @@ export async function concatenateVideos(
       .on("error", (err) => reject(err))
       .run();
   });
+}
+
+/**
+ * 動画から指定時刻のスクリーンショットを抽出する
+ */
+export async function extractScreenshot(
+  videoPath: string,
+  outputPath: string,
+  timestampSeconds: number
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .setStartTime(timestampSeconds)
+      .outputOptions(["-frames:v", "1", "-q:v", "2"])
+      .output(outputPath)
+      .on("end", () => resolve())
+      .on("error", (err) => reject(err))
+      .run();
+  });
+}
+
+/**
+ * セグメントリストの各開始時点のスクリーンショットを抽出する
+ */
+export async function extractScreenshotsForSegments(
+  videoPath: string,
+  jobId: string,
+  segments: Segment[]
+): Promise<string[]> {
+  const screenshotsDir = getScreenshotsDir(jobId);
+  await fs.mkdir(screenshotsDir, { recursive: true });
+
+  const screenshotPaths: string[] = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const screenshotPath = getScreenshotPath(jobId, i);
+    const startSeconds = timeToSeconds(segment.start);
+
+    await extractScreenshot(videoPath, screenshotPath, startSeconds);
+    screenshotPaths.push(screenshotPath);
+  }
+
+  return screenshotPaths;
 }
 
 /**

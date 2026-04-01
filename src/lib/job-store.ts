@@ -114,6 +114,26 @@ export async function setJobSegments(
 }
 
 /**
+ * ジョブに記事パスを保存する
+ */
+export async function setJobArticlePath(
+  jobId: string,
+  articlePath: string
+): Promise<Job | null> {
+  const job = await getJob(jobId);
+  if (!job) {
+    return null;
+  }
+
+  job.articlePath = articlePath;
+
+  const filePath = getJobFilePath(jobId);
+  await fs.writeFile(filePath, JSON.stringify(job, null, 2));
+
+  return job;
+}
+
+/**
  * ジョブを削除する
  */
 export async function deleteJob(jobId: string): Promise<void> {
