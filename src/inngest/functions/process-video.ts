@@ -13,9 +13,8 @@ import {
   getArticlePath,
 } from "@/lib/storage";
 import { transcribeVideo } from "@/lib/whisper";
-import { extractPunchlines } from "@/lib/claude";
+import { extractPunchlines, generateSummaryArticle } from "@/lib/claude";
 import { generateDigest, extractScreenshotsForSegments } from "@/lib/ffmpeg";
-import { generateArticle } from "@/lib/article";
 import type { TranscriptChunk, Segment } from "@/types";
 
 export const processVideo = inngest.createFunction(
@@ -63,9 +62,9 @@ export const processVideo = inngest.createFunction(
         return result.segments;
       });
 
-      // Step 3: ダイジェスト動画・記事生成
+      // Step 3: ダイジェスト動画生成
       await step.run("generate-digest", async () => {
-        await updateJobStatus(jobId, "generating", 80);
+        await updateJobStatus(jobId, "generating", 75);
 
         const videoPath = getOriginalVideoPath(jobId);
         const digestPath = getDigestVideoPath(jobId);
@@ -76,9 +75,17 @@ export const processVideo = inngest.createFunction(
 
         // ダイジェスト動画を生成
         await generateDigest(videoPath, digestPath, typedSegments);
+      });
 
-        // Markdown記事を生成
-        const articleContent = generateArticle(typedSegments);
+      // Step 4: まとめ記事生成
+      await step.run("generate-article", async () => {
+        await updateJobStatus(jobId, "generating", 90);
+
+        const typedChunks = chunks as TranscriptChunk[];
+        const typedSegments = segments as Segment[];
+
+        // Claudeでまとめ記事を生成（3000文字程度）
+        const articleContent = await generateSummaryArticle(typedChunks, typedSegments);
         const articlePath = getArticlePath(jobId);
         await fs.writeFile(articlePath, articleContent, "utf-8");
 
