@@ -2,148 +2,183 @@
 
 ## Overview
 
-- セミナー動画（mp4）からAIがパンチライン（重要な部分）を自動抽出し、約5分のダイジェスト動画を生成するWebアプリケーション
-- 認証なしで一般公開、最大90分の動画に対応
-- Railway でホスティング
+- セミナー/講義などの長尺動画から、指定した秒数のショートクリップ候補をAIが自動提案し、ユーザーがベストカットを選んで書き出せるWebアプリ
+- 動画アップロード時に希望尺（例: 10秒 / 15秒）を入力 → トランスクライブ → AIが候補区間を提示 → 選択した区間のみトリミング & テロップ焼き込み
+- 認証なしの一般公開、Railwayデプロイを前提。既存のV1（5分ダイジェスト）からのピボット版
 
 ## Related Docs
 
-- `api.md` — API エンドポイント仕様
-- `job-processing.md` — ジョブ処理フロー
+- `api.md` — APIエンドポイント仕様
+- `job-processing.md` — ジョブ/ワーカーの処理フロー
 
 ## Specification
 
-### 機能要件
+### 機能要件（V2）
 
-#### MVP
+1. **動画アップロード + メタ情報入力**
+   - mp4をドロップ/選択してアップロード
+   - 「生成したい尺（秒数）」を1つ以上指定（例: 10秒, 15秒。MVPは単一値でOK）
+   - アップロード完了と同時に非同期ジョブを起動
 
-- mp4 動画のアップロード（最大90分）
-- 自動文字起こし（Whisper API）
-- AIによるパンチライン抽出（Claude API）
-- ダイジェスト動画の生成（約5分）
-- テロップ自動追加（文字起こしテキストを字幕として焼き込み）
-- 生成された動画のダウンロード
+2. **自動トランスクライブ**
+   - Whisper APIで全文文字起こし（タイムスタンプ付き）
+   - 90分/500MBまで対応、長尺は音声チャンク分割
 
-#### スコープ外（将来対応）
+3. **AIによるショートクリップ候補提案**
+   - Claudeにトランスクリプト + 希望尺 + クリップ数（デフォルト3件）を渡し、`start`/`end`/`headline`/`reason`/`confidence` を含む候補リストを生成
+   - 各候補にはプレビュー用静止画取得に使うミッドポイント時刻を含める
 
-- ユーザー認証
-- 抽出基準の選択（パンチライン / トピック網羅 / カスタム）
-- 課金・利用制限
+4. **ユーザー選択UI**
+   - 候補リストをカード表示（波形/字幕プレビュー/理由テキスト）
+   - 候補クリックでタイムラインを開き、±2秒などの微調整が可能
+   - 「この区間で書き出す」を押すとレンダリングジョブを起動
+
+5. **自動トリミング + テロップ焼き込み**
+   - 選択された `start/end` にあわせてFFmpegで切り出し
+   - Whisper結果を該当区間で切り出し、SRT生成→動画に直接焼き込み（Noto Sans JP / 24px / 白字+黒縁 / 下中央）
+
+6. **書き出し・ダウンロード**
+   - 生成完了後に `/api/jobs/{jobId}/download` からmp4取得
+   - UI上でもプレビュー + ダウンロードボタンを表示
 
 ### 非機能要件
 
-- 認証なしで一般公開
-- 90分の動画を処理できること
-- Railway でホスティング可能であること
+- 最大90分/500MBのmp4を処理可能
+- 認証なし公開
+- Railwayでデプロイ可能（Next.js App Router + Inngest）
+- 1ジョブあたり候補生成までは5分以内、書き出しは1分以内を目標
 
 ### 技術スタック
 
-| レイヤー           | 技術                                      |
-| ------------------ | ----------------------------------------- |
-| フロントエンド     | Next.js 15 (App Router) + TypeScript      |
-| バックエンド       | Next.js API Routes                        |
-| 文字起こし         | OpenAI Whisper API                        |
-| パンチライン抽出   | Claude API (claude-sonnet-4-20250514)     |
-| 動画編集           | FFmpeg (fluent-ffmpeg)                    |
-| ストレージ         | Railway Volume（ローカルファイルシステム）|
-| ジョブキュー       | Inngest                                   |
-| インフラ           | Railway                                   |
+| レイヤー             | 技術/サービス                                          |
+| -------------------- | ------------------------------------------------------- |
+| フロントエンド       | Next.js 15 (App Router) + TypeScript + Tailwind CSS     |
+| 状態管理             | React Server Actions + SWR（ポーリング）               |
+| バックエンドAPI      | Next.js Route Handlers                                  |
+| 文字起こし           | OpenAI Whisper API                                      |
+| 候補生成AI           | Claude 3.5 Sonnet（`claude-3-5-sonnet-20240620`）       |
+| 動画処理             | FFmpeg（fluent-ffmpeg）                                 |
+| ジョブキュー         | Inngest                                                  |
+| ストレージ           | Railway Volume（`/jobs/{jobId}`構成）                   |
+| デプロイ             | Railway                                                  |
 
-### アーキテクチャ
+### アーキテクチャ（V2）
 
 ```
 [ユーザー]
-    │
+    │ アップロード & 尺指定
     ▼
 [Next.js Frontend]
-    │ アップロード
+    │ POST /api/upload
     ▼
-[API Route] ──────► [Railway Volume]
-    │                     │
-    │ ジョブ登録           │
-    ▼                     │
-[Inngest]                 │
-    │                     │
-    ▼                     ▼
-[Worker Process] ◄─────────┘
+[API Route] ──► [Railway Volume]
+    │                  │ original.mp4 保存
+    │ Emit event       │
+    ▼                  │
+[Inngest Worker]
+    │ 1. transcribe → transcript.json
+    │ 2. propose-clips → candidates.json
+    ▼
+[Job Store]
+    │ status=awaiting_selection で待機
+    ▼ ユーザー選択
+[API POST /select]
+    │ Emit clip/selected event
+    ▼
+[Inngest Worker]
+    │ 3. render-clip → clip.mp4 (caption付き)
     │
-    ├─► [Whisper API] 文字起こし
+    ▼
+[ジョブ完了]
     │
-    ├─► [Claude API] パンチライン抽出
-    │
-    ├─► [FFmpeg] 動画切り出し・結合
-    │
-    └─► [ストレージ] ダイジェスト保存
-           │
-           ▼
-      [ユーザーに通知 → ダウンロード]
+    ▼
+[Frontend] プレビュー & ダウンロード
+```
+
+### データモデル（ファイルベース）
+
+```ts
+// jobs/{jobId}/job.json
+{
+  "id": string,
+  "status": "pending" | "transcribing" | "proposing" | "awaiting_selection" | "rendering" | "completed" | "failed",
+  "progress": number,
+  "clipLengthSeconds": number,
+  "candidateCount": number,
+  "createdAt": string,
+  "completedAt": string | null,
+  "errorMessage": string | null,
+  "selectedClip": {
+    "start": number,
+    "end": number,
+    "candidateId": string
+  } | null
+}
+
+// jobs/{jobId}/transcript.json
+TranscriptChunk[]
+
+// jobs/{jobId}/candidates.json
+ClipCandidate[]
+```
+
+```ts
+type ClipCandidate = {
+  id: string;
+  start: number; // 秒
+  end: number;   // 秒
+  duration: number;
+  headline: string;
+  reason: string;
+  confidence: number; // 0-1
+  previewTimestamp: number; // フレームキャプチャ位置
+};
 ```
 
 ### 画面構成
 
-| 画面       | パス            | 機能                                 |
-| ---------- | --------------- | ------------------------------------ |
-| トップ     | `/`             | アップロードエリア + 使い方説明      |
-| 履歴       | `/history`      | ジョブ一覧（新しい順）               |
-| ジョブ詳細 | `/jobs/[jobId]` | 進捗表示、プレビュー、ダウンロード   |
+1. **トップ (`/`)**
+   - アップロードドロップゾーン
+   - 尺入力フォーム（プリセットボタン + 数値入力）
+   - 進捗カード（ポーリングで更新）
 
-### パンチライン抽出基準
+2. **ジョブ詳細 (`/jobs/[jobId]`)**
+   - ステータスタイムライン（transcribing → proposing → awaiting selection → rendering → completed）
+   - 候補カード（headline / reason / duration / サムネ）
+   - タイムライン微調整モーダル
+   - 選択済みのプレビュー + ダウンロード
 
-以下の基準でセグメントを選択:
+3. **履歴 (`/history`)**
+   - 過去ジョブ一覧（ステータス/尺/作成日時/最終結果）
 
-1. 話者が強調している箇所
-2. 聴衆の反応が想定される発言
-3. 具体的な事例・エピソード
-4. 結論・まとめの部分
-5. 印象的なフレーズ・名言
+### 候補生成ロジック（LLMプロンプト要件）
 
-### テロップスタイル
+- WhisperのTranscriptChunkを `HH:MM:SS` 付きテキストに整形し、希望尺を渡す
+- 応答は JSON のみ（LLM出力をパース）
+- 候補数は3件（MVP）。閾値以下は results を空配列にしてUIで「見つかりませんでした」を表示
+- 各候補の `reason` は短い日本語文章、`headline` はフックになるコピー
 
-- 位置: 画面下部中央
-- フォント: Noto Sans JP（日本語対応）
-- サイズ: 24px
-- 色: 白文字 + 黒縁取り
-- 背景: 半透明黒
+### テロップ生成
 
-### 制約
+1. transcript.json から `start/end` にかかるチャンクを抽出
+2. 1秒未満のギャップをマージ
+3. SRTに変換（200文字以上の場合はラインブレイク）
+4. `ffmpeg -vf subtitles` equivalent で焼き込み
 
-- **Whisper API**: 25MB/リクエスト → 長い動画は音声を10分ごとに分割して送信
-- **Railway**: リクエストタイムアウト → Inngest による非同期ジョブ処理で対応
-- **FFmpeg**: Docker イメージにインストールが必要
+### 制約・前提
+
+- 現時点では同時に1本だけの書き出し（複数尺や複数選択は将来対応）
+- Whisper/Claude APIキーはRailwayの環境変数で管理
+- ブラウザからの直接アップロード → API Route → temporary file へのストリーム保存（既存実装を踏襲）
 
 ## Decision Log
 
-### 2025-03-24: MVP スコープの決定
+### 2026-04-16: V2ショートクリップ方針
+- 背景: 顧客から「短尺の切り抜き提案&選択型」の要望
+- 決定: 既存リポジトリをベースにアーキテクチャを再設計し、ショートクリップ特化フローへ転換
+- 理由: Whisper/Claude/FFmpeg/ストレージなどコア部品を流用でき、別プロダクト化による重複コストを避けられる
 
-- 背景: 初期リリースのスコープを決定する必要があった
-- 候補: (A) 認証付きフル機能 (B) 認証なしMVP
-- 決定: (B) 認証なしMVP
-- 理由: まずコア機能の検証を優先。認証・課金は後から追加可能
-
-### 2025-03-24: ストレージの選定
-
-- 背景: アップロードされた動画と生成された動画の保存先
-- 候補: (A) S3互換ストレージ (B) Railway Volume
-- 決定: (B) Railway Volume
-- 理由: シンプル、追加コストなし、API経由でダウンロード提供可能
-
-### 2025-03-24: ジョブキューの選定
-
-- 背景: 長時間の動画処理を非同期で行う必要がある
-- 候補: (A) BullMQ (B) Inngest (C) Temporal
-- 決定: (B) Inngest
-- 理由: 既存アカウントあり、Next.js との相性が良い、セットアップが簡単
-
-### 2025-03-24: 進捗通知方式の選定
-
-- 背景: 処理中の進捗をユーザーに伝える方法
-- 候補: (A) WebSocket (B) Server-Sent Events (C) ポーリング
-- 決定: (C) ポーリング
-- 理由: MVPはシンプルに。将来的にSSEへ移行可能
-
-### 2025-04-01: テロップ自動追加機能
-
-- 背景: ダイジェスト動画の視聴体験を向上させるため
-- 候補: (A) SRT字幕を別ファイルで提供 (B) 動画に直接焼き込み
-- 決定: (B) 動画に直接焼き込み
-- 理由: ユーザーが追加作業なしで字幕付き動画を利用できる
+### 2026-04-16: UIステップの分離
+- 背景: AI提案後にユーザーが選択する「人間の介在ポイント」が必須
+- 決定: ステータス `awaiting_selection` を導入し、候補提示と書き出しを分ける
+- 理由: インタラクティブUXを成立させつつ、バックエンドの責務（候補生成 vs レンダリング）を明確化できる

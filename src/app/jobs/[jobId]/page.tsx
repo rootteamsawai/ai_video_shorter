@@ -1,13 +1,24 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
-import type { Job } from "@/types";
+import type { ClipCandidate, Job } from "@/types";
 import { ProgressDisplay } from "@/components/progress-display";
 import { VideoPreview } from "@/components/video-preview";
-import { ArticleView } from "@/components/article-view";
 
-type Tab = "video" | "article";
+const POLL_INTERVAL = 3000;
+
+function formatSeconds(value: number): string {
+  const minutes = Math.floor(value / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = Math.floor(value % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+type Tab = "status" | "preview";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -17,7 +28,18 @@ export default function JobPage({ params }: Props) {
   const { jobId } = use(params);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("video");
+  const [activeTab, setActiveTab] = useState<Tab>("status");
+  const [activeCandidate, setActiveCandidate] = useState<ClipCandidate | null>(
+    null
+  );
+  const [startValue, setStartValue] = useState<number | null>(null);
+  const [endValue, setEndValue] = useState<number | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+
+  const shouldPoll = job
+    ? !["completed", "failed"].includes(job.status)
+    : true;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -36,12 +58,15 @@ export default function JobPage({ params }: Props) {
           throw new Error("Failed to fetch job");
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as Job;
         setJob(data);
 
-        // 処理中の場合はポーリングを継続
-        if (data.status !== "completed" && data.status !== "failed") {
-          setTimeout(fetchJob, 2000);
+        if (data.status === "awaiting_selection" && data.candidates?.length) {
+          setActiveCandidate((prev) => prev ?? data.candidates?.[0] ?? null);
+        }
+
+        if (shouldPoll) {
+          setTimeout(fetchJob, POLL_INTERVAL);
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
@@ -52,11 +77,101 @@ export default function JobPage({ params }: Props) {
     };
 
     fetchJob();
-
     return () => {
       controller.abort();
     };
-  }, [jobId]);
+  }, [jobId, shouldPoll]);
+
+  useEffect(() => {
+    if (!activeCandidate) {
+      setStartValue(null);
+      setEndValue(null);
+      return;
+    }
+    setStartValue(activeCandidate.start);
+    setEndValue(activeCandidate.end);
+  }, [activeCandidate]);
+
+  const clampStart = useMemo(() => {
+    if (!activeCandidate) return 0;
+    return activeCandidate.start - 2;
+  }, [activeCandidate]);
+
+  const clampEnd = useMemo(() => {
+    if (!activeCandidate) return 0;
+    return activeCandidate.end + 2;
+  }, [activeCandidate]);
+
+  const actualDuration = useMemo(() => {
+    if (startValue == null || endValue == null) return null;
+    return Number((endValue - startValue).toFixed(2));
+  }, [startValue, endValue]);
+
+  const handleNudge = (target: "start" | "end", delta: number) => {
+    if (!activeCandidate) return;
+
+    if (target === "start" && startValue != null) {
+      const next = Math.min(
+        Math.max(clampStart, startValue + delta),
+        (endValue ?? activeCandidate.end) - 0.3
+      );
+      setStartValue(Number(next.toFixed(2)));
+    }
+
+    if (target === "end" && endValue != null) {
+      const next = Math.max(
+        Math.min(clampEnd, endValue + delta),
+        (startValue ?? activeCandidate.start) + 0.3
+      );
+      setEndValue(Number(next.toFixed(2)));
+    }
+  };
+
+  const submitSelection = async () => {
+    if (!job || !activeCandidate || startValue == null || endValue == null) {
+      return;
+    }
+
+    setSelecting(true);
+    setSelectionError(null);
+
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: activeCandidate.id,
+          start: startValue,
+          end: endValue,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "選択に失敗しました");
+      }
+
+      setJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "rendering",
+              selectedClip: {
+                candidateId: activeCandidate.id,
+                start: startValue,
+                end: endValue,
+              },
+            }
+          : prev
+      );
+    } catch (err) {
+      setSelectionError(
+        err instanceof Error ? err.message : "書き出しに失敗しました"
+      );
+    } finally {
+      setSelecting(false);
+    }
+  };
 
   if (error) {
     return (
@@ -79,84 +194,72 @@ export default function JobPage({ params }: Props) {
     );
   }
 
+  const durationDiff =
+    actualDuration != null ?
+      Number((actualDuration - job.clipLengthSeconds).toFixed(2))
+    : null;
+
+  const selectionSummary = job.selectedClip && (
+    <div className="p-4 bg-slate-50 rounded-lg flex flex-col gap-1 text-sm text-slate-700">
+      <span className="font-semibold text-slate-900">選択済みクリップ</span>
+      <span>
+        {formatSeconds(job.selectedClip.start)} – {formatSeconds(job.selectedClip.end)}
+      </span>
+      <span>尺: {(job.selectedClip.end - job.selectedClip.start).toFixed(2)} 秒</span>
+    </div>
+  );
+
   return (
     <div className="space-y-8">
       {job.status === "completed" ? (
         <>
           <div className="text-center">
-            <div className="text-4xl mb-4">🎉</div>
+            <div className="text-4xl mb-4">🚀</div>
             <h2 className="text-2xl font-bold text-gray-900">
-              ダイジェストが完成しました！
+              ショートクリップが完成しました
             </h2>
+            <p className="text-gray-600">
+              テロップ入りの動画をそのままSNSにアップできます
+            </p>
           </div>
 
-          {/* タブ切り替え */}
           <div className="flex justify-center border-b border-gray-200">
             <button
-              onClick={() => setActiveTab("video")}
+              onClick={() => setActiveTab("preview")}
               className={`px-6 py-3 font-medium transition-colors ${
-                activeTab === "video"
+                activeTab === "preview"
                   ? "text-blue-600 border-b-2 border-blue-600"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              動画
+              プレビュー
             </button>
             <button
-              onClick={() => setActiveTab("article")}
+              onClick={() => setActiveTab("status")}
               className={`px-6 py-3 font-medium transition-colors ${
-                activeTab === "article"
+                activeTab === "status"
                   ? "text-blue-600 border-b-2 border-blue-600"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              記事
+              詳細
             </button>
           </div>
 
-          {/* タブコンテンツ */}
-          {activeTab === "video" ? (
-            <>
-              <VideoPreview jobId={jobId} />
-
-              {/* 抽出されたセグメント一覧 */}
-              {job.segments && job.segments.length > 0 && (
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4">
-                    抽出されたシーン
-                  </h3>
-                  <div className="space-y-4">
-                    {job.segments.map((segment, index) => (
-                      <div
-                        key={index}
-                        className="border-l-4 border-blue-500 pl-4 py-2"
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
-                            {segment.start} - {segment.end}
-                          </span>
-                        </div>
-                        <p className="text-gray-800 font-medium mb-1">
-                          「{segment.quote}」
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          → {segment.reason}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+          {activeTab === "preview" ? (
+            <VideoPreview jobId={jobId} />
           ) : (
-            <ArticleView jobId={jobId} />
+            <div className="bg-white rounded-lg shadow p-6 space-y-4">
+              {selectionSummary}
+              <div>
+                <p className="text-sm text-gray-500">ジョブID</p>
+                <p className="font-mono text-gray-800">{job.id}</p>
+              </div>
+            </div>
           )}
 
           <div className="text-center">
-            <Link
-              href="/"
-              className="text-blue-600 hover:underline"
-            >
+            <Link href="/" className="text-blue-600 hover:underline">
               別の動画を処理する
             </Link>
           </div>
@@ -174,19 +277,197 @@ export default function JobPage({ params }: Props) {
             もう一度試す
           </Link>
         </div>
+      ) : job.status === "awaiting_selection" ? (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-1">
+              ベストポジションを選択
+            </h2>
+            <p className="text-gray-600 text-sm">
+              希望尺: {job.clipLengthSeconds}s ／ 候補数: {job.candidateCount}
+            </p>
+          </div>
+
+          {job.candidates && job.candidates.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {job.candidates.map((candidate) => {
+                const isActive = activeCandidate?.id === candidate.id;
+                return (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={() => setActiveCandidate(candidate)}
+                    className={`text-left border rounded-xl p-4 bg-white shadow-sm transition-all ${
+                      isActive
+                        ? "border-blue-500 ring-2 ring-blue-100"
+                        : "border-gray-200 hover:border-blue-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+                        Candidate
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        confidence {(candidate.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {candidate.headline}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">{candidate.reason}</p>
+                    <div className="mt-3 text-xs text-gray-500 flex items-center justify-between">
+                      <span>
+                        {formatSeconds(candidate.start)} – {formatSeconds(candidate.end)}
+                      </span>
+                      <span>{candidate.duration.toFixed(1)}s</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-900">
+              候補が生成できませんでした。別の動画でお試しください。
+            </div>
+          )}
+
+          {activeCandidate && (
+            <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">選択中の候補</p>
+                  <p className="font-semibold text-gray-900">
+                    {activeCandidate.headline}
+                  </p>
+                </div>
+                <div className="text-right text-sm text-gray-500">
+                  <p>
+                    {formatSeconds(activeCandidate.start)} – {formatSeconds(activeCandidate.end)}
+                  </p>
+                  <p>{activeCandidate.duration.toFixed(2)}s</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500 mb-2">
+                    Start
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleNudge("start", -0.2)}
+                      className="px-3 py-2 rounded-md border text-sm"
+                      disabled={selecting}
+                    >
+                      -0.2s
+                    </button>
+                    <input
+                      type="number"
+                      step={0.1}
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2"
+                      value={startValue ?? activeCandidate.start}
+                      disabled={selecting}
+                      onChange={(e) =>
+                        setStartValue(
+                          Math.max(
+                            clampStart,
+                            Math.min(Number(e.target.value), (endValue ?? activeCandidate.end) - 0.3)
+                          )
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleNudge("start", 0.2)}
+                      className="px-3 py-2 rounded-md border text-sm"
+                      disabled={selecting}
+                    >
+                      +0.2s
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500 mb-2">
+                    End
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleNudge("end", -0.2)}
+                      className="px-3 py-2 rounded-md border text-sm"
+                      disabled={selecting}
+                    >
+                      -0.2s
+                    </button>
+                    <input
+                      type="number"
+                      step={0.1}
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2"
+                      value={endValue ?? activeCandidate.end}
+                      disabled={selecting}
+                      onChange={(e) =>
+                        setEndValue(
+                          Math.min(
+                            clampEnd,
+                            Math.max(Number(e.target.value), (startValue ?? activeCandidate.start) + 0.3)
+                          )
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleNudge("end", 0.2)}
+                      className="px-3 py-2 rounded-md border text-sm"
+                      disabled={selecting}
+                    >
+                      +0.2s
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>現在の尺: {actualDuration?.toFixed(2)}s</span>
+                <span>
+                  目標との差: {durationDiff != null ? durationDiff.toFixed(2) : "-"}s
+                </span>
+              </div>
+
+              {selectionError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {selectionError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={submitSelection}
+                  disabled={selecting}
+                  className="px-5 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {selecting ? "書き出し中..." : "この範囲で書き出す"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              動画を処理中です
+              ジョブを処理中です
             </h2>
             <p className="text-gray-600">
-              しばらくお待ちください（数分〜十数分かかる場合があります）
+              文字起こし・候補生成・レンダリングを順番に行っています
             </p>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-6 space-y-4">
             <ProgressDisplay status={job.status} progress={job.progress} />
+            {selectionSummary}
           </div>
         </>
       )}

@@ -75,7 +75,7 @@ export function Sidebar() {
         {/* ロゴ */}
         <div className="p-4 border-b border-gray-200">
           <Link href="/" onClick={closeMenu}>
-            <h1 className="text-xl font-bold text-gray-900">Seminar Digest</h1>
+            <h1 className="text-xl font-bold text-gray-900">AI Video Shorter</h1>
           </Link>
         </div>
 

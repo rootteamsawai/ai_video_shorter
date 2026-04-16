@@ -21,7 +21,7 @@ export function VideoPreview({ jobId }: Props) {
       <div className="mt-4 flex justify-center">
         <a
           href={videoUrl}
-          download={`digest-${jobId}.mp4`}
+          download={`clip-${jobId}.mp4`}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
         >
           ダウンロード

@@ -1,180 +1,146 @@
-# ジョブ処理フロー
+# ジョブ処理フロー (V2)
 
 ## Overview
 
-- Inngest を使用した非同期ジョブ処理
-- 文字起こし → パンチライン抽出 → 動画生成 の3ステップで構成
-- 各ステップは Inngest の step.run で分離され、リトライ可能
+- Inngest で非同期ジョブを管理
+- アップロード後に `video/uploaded` をEmit → transcript → candidate 提案 → (ユーザー操作) → render の順
+- ユーザー選択待ちをステータスとして明示し、再入可能
 
 ## Related Docs
 
-- `design.md` — 全体設計
-- `api.md` — API仕様
+- `design.md`
+- `api.md`
 
-## Specification
-
-### 処理フロー
+## 全体フロー
 
 ```
-video/uploaded イベント発火
-         │
-         ▼
-   ┌─────────────┐
-   │ transcribe  │  Step 1: 文字起こし
-   │  (10-40%)   │
-   └─────┬───────┘
-         │
-         ▼
-   ┌─────────────┐
-   │   analyze   │  Step 2: パンチライン抽出
-   │  (50-70%)   │
-   └─────┬───────┘
-         │
-         ▼
-   ┌─────────────┐
-   │  generate   │  Step 3: ダイジェスト動画生成
-   │  (80-100%)  │
-   └─────┬───────┘
-         │
-         ▼
-      完了 or 失敗
+video/uploaded
+      │
+      ▼
+┌─────────────┐
+│ transcribe  │  Step1 文字起こし (0-40%)
+└─────┬───────┘
+      │ TranscriptChunk[]
+      ▼
+┌─────────────┐
+│ propose     │  Step2 候補抽出 (40-70%)
+└─────┬───────┘
+      │ ClipCandidate[]
+      ▼
+ status = awaiting_selection
+      │ (ユーザーが POST /select)
+      ▼
+clip/selected event
+      │
+┌─────────────┐
+│ render_clip │  Step3 トリミング+字幕 (80-100%)
+└─────┬───────┘
+      ▼
+   completed / failed
 ```
 
-### Step 1: 文字起こし (transcribe)
+## Step 1: transcribe
 
-**処理内容**
+- 入力: `/jobs/{jobId}/original.mp4`
+- 音声抽出 → 25MB超は10分単位でチャンク
+- Whisper API（タイムスタンプ付き）で全文起こし
+- 出力: `transcript.json` (`TranscriptChunk[]`)
+- 進捗: start 10%, end 40%
 
-1. 元動画から音声を抽出（MP3, 128kbps）
-2. 音声ファイルサイズを確認
-3. 25MB以下 → そのまま Whisper API に送信
-4. 25MB超 → 10分ごとに分割して順次送信
-5. タイムスタンプ付きの文字起こし結果を返却
-
-**入力**
-
-- 元動画ファイル（`/jobs/{jobId}/original.mp4`）
-
-**出力**
-
-```typescript
+```ts
 type TranscriptChunk = {
-  start: number;  // 秒数
-  end: number;    // 秒数
-  text: string;   // 文字起こしテキスト
+  start: number; // 秒
+  end: number;
+  text: string;
 };
-
-// TranscriptChunk[] を返却
 ```
 
-**進捗更新**
+## Step 2: propose-clips
 
-- 開始時: 10%
-- 完了時: 40%
+- 入力: transcript.json, `clipLengthSeconds`, `candidateCount`
+- TranscriptChunkを `HH:MM:SS text` の形に整形してClaudeへ
+- Claudeレスポンス（JSON）をバリデーション → `candidates.json` 保存
+- `job.json` を `status = "awaiting_selection"` に更新
+- 進捗: start 50%, end 70%
 
-### Step 2: パンチライン抽出 (analyze)
-
-**処理内容**
-
-1. 文字起こし結果をタイムスタンプ付きテキストに変換
-2. Claude API に送信し、パンチラインを抽出
-3. 抽出結果を Job に保存
-
-**入力**
-
-- Step 1 の TranscriptChunk[]
-- 目標時間: 5分
-
-**Claude API 呼び出し**
-
-- モデル: `claude-sonnet-4-20250514`
-- max_tokens: 4096
-
-**出力**
-
-```typescript
-type Segment = {
-  start: string;   // "HH:MM:SS" 形式
-  end: string;     // "HH:MM:SS" 形式
-  reason: string;  // 選択理由
-  quote: string;   // 代表的な発言
+```ts
+type ClipCandidate = {
+  id: string;
+  start: number;
+  end: number;
+  duration: number;
+  headline: string;
+  reason: string;
+  confidence: number;
+  previewTimestamp: number;
 };
-
-// Segment[] を返却
 ```
 
-**進捗更新**
+## ユーザー選択 (API層)
 
-- 開始時: 50%
-- 完了時: 70%
+- `/api/jobs/{jobId}/select` で `candidateId` と `start/end` (秒) を受け取る
+- バリデーション: `duration` が `clipLengthSeconds ± 1.5s` に収まること
+- `job.json` に `selectedClip` を保存し、`clip/selected` イベントをInngestに送信
+- ジョブstatusを `rendering`、progress 80 に更新
 
-### Step 3: ダイジェスト動画生成 (generate-digest)
+## Step 3: render-clip
 
-**処理内容**
+- 入力: original.mp4, transcript.json, selectedClip
+- サブステップ
+  1. `ffmpeg -ss {start} -to {end}` で指定区間を切り出し
+  2. transcriptから該当部分のチャンクを抽出し、SRT生成
+  3. `ffmpeg -vf subtitles=...` で字幕焼き込み
+  4. `/jobs/{jobId}/clip.mp4` として保存
+- 完了後: status=completed, progress=100, completedAt set
 
-1. 各セグメントの時間範囲で動画を切り出し
-2. 切り出したクリップを結合
-3. ダイジェスト動画として保存
+## エラー/リトライ
 
-**入力**
+- 各Stepは `step.run` で実装。デフォルトリトライ(最大3)を使用
+- ユーザー選択前に失敗した場合 → status=failed、`errorMessage` 記録
+- `render-clip` で失敗した場合も failed。再選択して再レンダリングする場合は今後のTODO
 
-- 元動画ファイル
-- Step 2 の Segment[]
-
-**FFmpeg 処理**
-
-1. **切り出し**: `-c copy` オプションで高速にセグメントを切り出し
-2. **結合**: concat demuxer を使用して結合
-
-**出力**
-
-- ダイジェスト動画（`/jobs/{jobId}/digest.mp4`）
-
-**進捗更新**
-
-- 開始時: 80%
-- 完了時: 100%
-
-### エラーハンドリング
-
-- 各 Step でエラーが発生した場合、Job の status を `failed` に更新
-- errorMessage にエラー内容を記録
-- Inngest の自動リトライは有効（デフォルト設定）
-
-### ストレージ構造
+## ストレージ構成 (Railway Volume)
 
 ```
 /jobs
   /{jobId}
-    /original.mp4     # アップロードされた元動画
-    /audio.mp3        # 抽出された音声（処理後削除）
-    /audio_chunks/    # 分割された音声（処理後削除）
-    /clip_0.mp4       # 切り出されたクリップ（処理後削除）
-    /clip_1.mp4
-    ...
-    /digest.mp4       # 最終的なダイジェスト動画
-    /job.json         # ジョブ情報
+    original.mp4
+    transcript.json
+    candidates.json
+    job.json
+    clip.mp4            # completed後のみ存在
+    thumbnails/
+      candidate_0.jpg   # 任意、将来拡張
 ```
 
-### ジョブ状態管理
+## Job JSON 例
 
-ジョブ情報は `job.json` にファイルとして保存される。
-
-```typescript
-type Job = {
-  id: string;
-  status: JobStatus;
-  progress: number;
-  errorMessage?: string;
-  createdAt: string;
-  completedAt?: string;
-  segments?: Segment[];
-};
+```json
+{
+  "id": "...",
+  "status": "awaiting_selection",
+  "progress": 70,
+  "clipLengthSeconds": 10,
+  "candidateCount": 3,
+  "createdAt": "...",
+  "completedAt": null,
+  "errorMessage": null,
+  "selectedClip": null
+}
 ```
 
-状態遷移:
+`selectedClip` は以下の形。
 
+```json
+{
+  "candidateId": "cand_01",
+  "start": 122.9,
+  "end": 133.5
+}
 ```
-pending → transcribing → analyzing → generating → completed
-                                                ↘
-                        (any step) ────────────→ failed
-```
+
+## 将来拡張メモ
+
+- 複数クリップ選択 → `render_clip` を並列に走らせる
+- 候補再生成API → transcriptを再利用してClaudeを再実行
+- SSEでのリアルタイム更新 → 現状はポーリング

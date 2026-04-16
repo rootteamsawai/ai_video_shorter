@@ -130,3 +130,20 @@ export function formatTranscript(chunks: TranscriptChunk[]): string {
     })
     .join("\n");
 }
+
+/**
+ * 指定区間に重なる文字起こしチャンクだけを抽出し、開始/終了をクランプする
+ */
+export function sliceTranscript(
+  chunks: TranscriptChunk[],
+  startSeconds: number,
+  endSeconds: number
+): TranscriptChunk[] {
+  return chunks
+    .filter((chunk) => chunk.end > startSeconds && chunk.start < endSeconds)
+    .map((chunk) => ({
+      start: Math.max(startSeconds, chunk.start),
+      end: Math.min(endSeconds, chunk.end),
+      text: chunk.text.trim(),
+    }));
+}

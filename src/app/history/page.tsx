@@ -7,9 +7,10 @@ import type { Job, JobStatus } from "@/types";
 function getStatusLabel(status: JobStatus): string {
   const labels: Record<JobStatus, string> = {
     pending: "待機中",
-    transcribing: "文字起こし中",
-    analyzing: "分析中",
-    generating: "動画生成中",
+    transcribing: "文字起こし",
+    proposing: "候補抽出",
+    awaiting_selection: "選択待ち",
+    rendering: "書き出し",
     completed: "完了",
     failed: "エラー",
   };
@@ -22,8 +23,8 @@ function getStatusColor(status: JobStatus): string {
       return "bg-green-100 text-green-800";
     case "failed":
       return "bg-red-100 text-red-800";
-    case "pending":
-      return "bg-gray-100 text-gray-800";
+    case "awaiting_selection":
+      return "bg-yellow-100 text-yellow-800";
     default:
       return "bg-blue-100 text-blue-800";
   }
@@ -53,7 +54,7 @@ export default function HistoryPage() {
           throw new Error("ジョブの取得に失敗しました");
         }
         const data = await response.json();
-        setJobs(data);
+        setJobs(data.jobs ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "エラーが発生しました");
       } finally {
@@ -114,7 +115,7 @@ export default function HistoryPage() {
                     </span>
                   </div>
                   <span className="text-gray-400 text-sm">
-                    {job.id.slice(0, 8)}...
+                    {job.clipLengthSeconds ?? 10}s
                   </span>
                 </div>
                 {job.errorMessage && (

@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 
-export const STORAGE_PATH = process.env.STORAGE_PATH || "/tmp/seminar-digest";
+export const STORAGE_PATH = process.env.STORAGE_PATH || "/tmp/ai-video-shorter";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,10 +40,24 @@ export function getAudioPath(jobId: string): string {
 }
 
 /**
- * ダイジェスト動画のファイルパスを取得する
+ * トランスクリプトファイルのパスを取得する
  */
-export function getDigestVideoPath(jobId: string): string {
-  return path.join(getJobDir(jobId), "digest.mp4");
+export function getTranscriptPath(jobId: string): string {
+  return path.join(getJobDir(jobId), "transcript.json");
+}
+
+/**
+ * 候補リストのファイルパスを取得する（任意）
+ */
+export function getCandidatesPath(jobId: string): string {
+  return path.join(getJobDir(jobId), "candidates.json");
+}
+
+/**
+ * ショートクリップ動画のファイルパスを取得する
+ */
+export function getClipVideoPath(jobId: string): string {
+  return path.join(getJobDir(jobId), "clip.mp4");
 }
 
 /**
@@ -111,25 +125,4 @@ export async function deleteJobDir(jobId: string): Promise<void> {
 export async function getFileSize(filePath: string): Promise<number> {
   const stats = await fs.stat(filePath);
   return stats.size;
-}
-
-/**
- * スクリーンショット保存ディレクトリのパスを取得する
- */
-export function getScreenshotsDir(jobId: string): string {
-  return path.join(getJobDir(jobId), "screenshots");
-}
-
-/**
- * 個別スクリーンショットファイルのパスを取得する
- */
-export function getScreenshotPath(jobId: string, index: number): string {
-  return path.join(getScreenshotsDir(jobId), `segment_${index}.jpg`);
-}
-
-/**
- * 記事ファイルのパスを取得する
- */
-export function getArticlePath(jobId: string): string {
-  return path.join(getJobDir(jobId), "article.md");
 }

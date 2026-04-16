@@ -1,105 +1,108 @@
 import { promises as fs } from "fs";
 import { inngest } from "../client";
 import {
-  updateJobStatus,
+  getJob,
+  setJobCandidates,
   setJobError,
-  setJobSegments,
-  setJobArticlePath,
+  updateJobStatus,
 } from "@/lib/job-store";
 import {
-  getOriginalVideoPath,
-  getDigestVideoPath,
+  getCandidatesPath,
+  getClipVideoPath,
   getJobDir,
-  getArticlePath,
+  getOriginalVideoPath,
+  getTranscriptPath,
 } from "@/lib/storage";
-import { transcribeVideo } from "@/lib/whisper";
-import { extractPunchlines, generateSummaryArticle } from "@/lib/claude";
-import { generateDigest, extractScreenshotsForSegments } from "@/lib/ffmpeg";
-import type { TranscriptChunk, Segment } from "@/types";
+import { transcribeVideo, sliceTranscript } from "@/lib/whisper";
+import { generateClipCandidates } from "@/lib/claude";
+import { cutVideoWithSubtitles } from "@/lib/ffmpeg";
+import type { TranscriptChunk } from "@/types";
 
-export const processVideo = inngest.createFunction(
-  { id: "process-video" },
+export const prepareShortClip = inngest.createFunction(
+  { id: "prepare-short-clip" },
   { event: "video/uploaded" },
   async ({ event, step }) => {
     const { jobId } = event.data as { jobId: string };
+    const job = await getJob(jobId);
+
+    if (!job) {
+      throw new Error(`Job ${jobId} not found`);
+    }
 
     try {
-      // Step 1: 文字起こし
       const chunks = await step.run("transcribe", async () => {
         await updateJobStatus(jobId, "transcribing", 10);
-
         const videoPath = getOriginalVideoPath(jobId);
         const jobDir = getJobDir(jobId);
 
-        // 分割処理時は進捗を細かく更新（10% → 40% の範囲で）
         const result = await transcribeVideo(videoPath, jobDir, async (current, total) => {
-          if (total > 1) {
-            // 10% から 40% の範囲で進捗を計算
+          if (total > 1 && total > 0) {
             const progress = 10 + Math.floor((current / total) * 30);
             await updateJobStatus(jobId, "transcribing", progress);
           }
         });
 
+        await fs.writeFile(getTranscriptPath(jobId), JSON.stringify(result, null, 2));
         await updateJobStatus(jobId, "transcribing", 40);
-
         return result;
       });
 
-      // Step 2: パンチライン抽出
-      const segments = await step.run("analyze", async () => {
-        await updateJobStatus(jobId, "analyzing", 50);
-
-        const result = await extractPunchlines(
+      await step.run("propose", async () => {
+        await updateJobStatus(jobId, "proposing", 50);
+        const candidates = await generateClipCandidates(
           chunks as TranscriptChunk[],
-          5 // 目標: 5分
+          job.clipLengthSeconds,
+          job.candidateCount
         );
 
-        await updateJobStatus(jobId, "analyzing", 70);
-
-        // セグメント情報を保存
-        await setJobSegments(jobId, result.segments);
-
-        return result.segments;
+        await setJobCandidates(jobId, candidates);
+        await fs.writeFile(
+          getCandidatesPath(jobId),
+          JSON.stringify(candidates, null, 2)
+        );
+        await updateJobStatus(jobId, "awaiting_selection", 70);
       });
 
-      // Step 3: ダイジェスト動画生成
-      await step.run("generate-digest", async () => {
-        await updateJobStatus(jobId, "generating", 75);
+      return { success: true, jobId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      await setJobError(jobId, message);
+      throw error;
+    }
+  }
+);
+
+export const renderShortClip = inngest.createFunction(
+  { id: "render-short-clip" },
+  { event: "clip/selected" },
+  async ({ event, step }) => {
+    const { jobId } = event.data as { jobId: string };
+    const job = await getJob(jobId);
+    if (!job || !job.selectedClip) {
+      throw new Error(`Job ${jobId} not ready for rendering`);
+    }
+
+    const { start, end } = job.selectedClip;
+
+    try {
+      await step.run("render", async () => {
+        await updateJobStatus(jobId, "rendering", 80);
+
+        const transcriptBuffer = await fs.readFile(getTranscriptPath(jobId), "utf-8");
+        const transcript: TranscriptChunk[] = JSON.parse(transcriptBuffer);
+        const subtitles = sliceTranscript(transcript, start, end);
 
         const videoPath = getOriginalVideoPath(jobId);
-        const digestPath = getDigestVideoPath(jobId);
-        const typedSegments = segments as Segment[];
+        const clipPath = getClipVideoPath(jobId);
 
-        // 各セグメントの開始時点でスクリーンショットを抽出
-        await extractScreenshotsForSegments(videoPath, jobId, typedSegments);
-
-        // ダイジェスト動画を生成
-        await generateDigest(videoPath, digestPath, typedSegments);
-      });
-
-      // Step 4: まとめ記事生成
-      await step.run("generate-article", async () => {
-        await updateJobStatus(jobId, "generating", 90);
-
-        const typedChunks = chunks as TranscriptChunk[];
-        const typedSegments = segments as Segment[];
-
-        // Claudeでまとめ記事を生成（3000文字程度）
-        const articleContent = await generateSummaryArticle(typedChunks, typedSegments);
-        const articlePath = getArticlePath(jobId);
-        await fs.writeFile(articlePath, articleContent, "utf-8");
-
-        // 記事パスを保存
-        await setJobArticlePath(jobId, articlePath);
-
+        await cutVideoWithSubtitles(videoPath, clipPath, start, end, subtitles);
         await updateJobStatus(jobId, "completed", 100);
       });
 
       return { success: true, jobId };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      await setJobError(jobId, errorMessage);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      await setJobError(jobId, message);
       throw error;
     }
   }

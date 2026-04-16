@@ -3,8 +3,8 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 
 export const metadata: Metadata = {
-  title: "Seminar Digest",
-  description: "AIがセミナー動画からダイジェストを自動生成",
+  title: "AI Video Shorter",
+  description: "AIが長尺動画からショートクリップ候補を提案",
 };
 
 export default function RootLayout({

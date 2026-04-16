@@ -13,33 +13,42 @@ export default function Home() {
   return (
     <div className="space-y-8">
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          セミナー動画からダイジェストを自動生成
+        <p className="text-sm uppercase tracking-[0.25em] text-blue-500 font-semibold">
+          AI SHORT CUTTER
+        </p>
+        <h2 className="text-3xl font-bold text-gray-900 mb-3">
+          長尺動画からベストな10秒を即提案
         </h2>
         <p className="text-gray-600">
-          AIが動画から重要なパンチラインを抽出し、約5分のダイジェスト動画を作成します
+          動画をアップロードして尺を指定すると、AIが文字起こし→ショート候補を提案。
+          気に入ったポイントを選べばテロップ付きで書き出します。
         </p>
       </div>
 
       <UploadZone onUploadComplete={handleUploadComplete} />
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">使い方</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">フロー</h3>
         <ol className="list-decimal list-inside space-y-2 text-gray-600">
-          <li>mp4形式のセミナー動画をアップロード</li>
-          <li>AIが自動で文字起こしを行い、重要な部分を抽出</li>
-          <li>約5分のダイジェスト動画が生成されます</li>
-          <li>完成した動画をダウンロード</li>
+          <li>mp4動画をアップロードし、生成したい秒数を入力</li>
+          <li>AIが全文をトランスクライブし、候補を3件提示</li>
+          <li>気に入った候補を選んで微調整 → そのまま書き出し</li>
+          <li>テロップ入りのショート動画をダウンロード</li>
         </ol>
 
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-          <h4 className="font-medium text-blue-900 mb-2">抽出基準</h4>
-          <ul className="text-sm text-blue-800 space-y-1">
-            <li>・話者が強調している箇所</li>
-            <li>・具体的な事例・エピソード</li>
-            <li>・結論・まとめの部分</li>
-            <li>・印象的なフレーズ・名言</li>
-          </ul>
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="p-4 bg-blue-50 rounded-lg">
+            <p className="text-sm font-semibold text-blue-900">尺プリセット</p>
+            <p className="text-sm text-blue-800 mt-1">10秒 / 15秒 / 任意入力</p>
+          </div>
+          <div className="p-4 bg-slate-50 rounded-lg">
+            <p className="text-sm font-semibold text-slate-900">AI候補</p>
+            <p className="text-sm text-slate-800 mt-1">headline + 理由 + 信頼度</p>
+          </div>
+          <div className="p-4 bg-emerald-50 rounded-lg">
+            <p className="text-sm font-semibold text-emerald-900">テロップ</p>
+            <p className="text-sm text-emerald-800 mt-1">Noto Sans JPで自動焼き込み</p>
+          </div>
         </div>
       </div>
     </div>

@@ -2,8 +2,8 @@
 
 ## Overview
 
-- 動画アップロード、ジョブ状態取得、ダイジェスト動画・記事ダウンロードのエンドポイントを提供
-- 認証なし、レート制限なし（MVP）
+- 動画アップロードからショートクリップ生成までを支えるREST API
+- 認証なし、ポーリング主体。候補提案→ユーザー選択→書き出しという段階的な状態を返す
 
 ## Related Docs
 
@@ -14,22 +14,21 @@
 
 ### POST /api/upload
 
-動画ファイルをアップロードし、処理ジョブを開始する。
+動画をアップロードし、新規ジョブを作成する。
 
 #### Request
 
 - Content-Type: `multipart/form-data`
 - Body:
-  - `video` (File, required): mp4形式の動画ファイル
+  - `video` (File, required): mp4 ファイル
+  - `clipLengthSeconds` (number, required): 希望尺（例: 10）
+  - `candidateCount` (number, optional, default: 3): AIが提示する候補数
 
 #### Constraints
 
-- 最大ファイルサイズ: 500MB
-- 対応形式: mp4 のみ
+- mp4 のみ、500MB以下
 
-#### Response
-
-**成功 (200)**
+#### Response (200)
 
 ```json
 {
@@ -37,249 +36,151 @@
 }
 ```
 
-**エラー (400)**
+#### Error
 
-```json
-{
-  "error": "No video file provided"
-}
-```
-
-```json
-{
-  "error": "Invalid file format. Only mp4 is supported."
-}
-```
-
-```json
-{
-  "error": "File too large. Maximum size is 500MB."
-}
-```
-
-**エラー (500)**
-
-```json
-{
-  "error": "Failed to upload video"
-}
-```
+- 400: 入力不足/不正フォーマット/サイズ超過
+- 500: 保存失敗など
 
 ---
 
 ### GET /api/jobs/[jobId]
 
-ジョブの状態を取得する。フロントエンドからポーリングで呼び出す。
+ジョブの最新状態を返す。フロントエンドから5秒間隔でポーリングを想定。
 
-#### Response
-
-**成功 (200)**
+#### Response (200)
 
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "analyzing",
-  "progress": 50,
-  "createdAt": "2025-03-24T10:00:00.000Z",
+  "status": "awaiting_selection",
+  "progress": 70,
+  "clipLengthSeconds": 10,
+  "candidateCount": 3,
+  "createdAt": "2026-04-16T09:05:00.000Z",
   "completedAt": null,
-  "segments": null,
-  "errorMessage": null
+  "errorMessage": null,
+  "candidates": [
+    {
+      "id": "cand_01",
+      "start": 123.4,
+      "end": 133.8,
+      "duration": 10.4,
+      "headline": "理想の逆算思考",
+      "reason": "視聴者の価値観を揺さぶるフレーズ",
+      "confidence": 0.86,
+      "previewTimestamp": 128.0
+    }
+  ],
+  "selectedClip": null,
+  "downloadUrl": null
 }
 ```
 
-| Field        | Type              | Description                                    |
-| ------------ | ----------------- | ---------------------------------------------- |
-| id           | string            | ジョブID (UUID)                                |
-| status       | JobStatus         | 現在のステータス                               |
-| progress     | number            | 進捗 (0-100)                                   |
-| createdAt    | string (ISO 8601) | ジョブ作成日時                                 |
-| completedAt  | string \| null    | 完了日時                                       |
-| segments     | Segment[] \| null | 抽出されたセグメント（完了時のみ）             |
-| errorMessage | string \| null    | エラーメッセージ（失敗時のみ）                 |
+- `candidates`: `status === "awaiting_selection"` のとき配列で返却。それ以前は `null`。
+- `selectedClip`: ユーザーが選択済みの場合に `{ start, end, candidateId }`。
+- `downloadUrl`: `status === "completed"` のみ署名付きURL文字列（ブラウザから直接DL）。MVPでは `null` で固定し、`/download` を叩く。
 
-**JobStatus**
+#### Status 値
 
-| Value        | Description              |
-| ------------ | ------------------------ |
-| pending      | 処理待ち                 |
-| transcribing | 文字起こし中             |
-| analyzing    | パンチライン抽出中       |
-| generating   | ダイジェスト動画生成中   |
-| completed    | 完了                     |
-| failed       | 失敗                     |
+| Status               | 説明                                   |
+| -------------------- | -------------------------------------- |
+| `pending`            | アップロード完了、ジョブ準備中         |
+| `transcribing`       | Whisper実行中                           |
+| `proposing`          | Claudeで候補抽出中                      |
+| `awaiting_selection` | 候補提示済み、ユーザー選択待ち         |
+| `rendering`          | 選択結果を元にFFmpegで書き出し中       |
+| `completed`          | 生成完了                               |
+| `failed`             | いずれかの工程で失敗                   |
 
-**Segment**
+#### Error
+
+- 404: Job not found
+
+---
+
+### POST /api/jobs/[jobId]/select
+
+候補の中から書き出す区間を確定する。確定後に `clip.selected` イベントをEmitし、renderジョブを起動。
+
+#### Request
+
+- Content-Type: `application/json`
+- Body:
 
 ```json
 {
-  "start": "00:05:30",
-  "end": "00:06:45",
-  "reason": "このセミナーの核心となる主張",
-  "quote": "「〇〇こそが成功の鍵なんです」"
+  "candidateId": "cand_01",
+  "start": 122.9,
+  "end": 133.5
 }
 ```
 
-**エラー (404)**
+- `start/end` は秒数（小数対応）。候補から±数秒の微調整を許可。
+
+#### Response (200)
 
 ```json
 {
-  "error": "Job not found"
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "rendering"
 }
 ```
+
+#### Error
+
+- 400: 既に選択済み/選択可能ステータスでない/尺制約違反
+- 404: Job or candidate not found
+
+---
+
+### POST /api/jobs/[jobId]/rerun-candidates (optional)
+
+- 将来向け。MVPでは未実装。`docs/todos.md` に管理。
 
 ---
 
 ### GET /api/jobs/[jobId]/download
 
-ダイジェスト動画をダウンロードする。
+書き出されたショートクリップをmp4として返す。
 
-#### Response
+#### Response (200)
 
-**成功 (200)**
+- Headers: `Content-Type: video/mp4`, `Content-Disposition: attachment; filename="clip-{jobId}.mp4"`
+- Body: バイナリ
 
-- Content-Type: `video/mp4`
-- Content-Disposition: `attachment; filename="digest-{jobId}.mp4"`
-- Body: 動画ファイルのバイナリストリーム
+#### Error
 
-**エラー (400)**
+- 400: Job not completed yet
+- 404: Job / file not found
 
-```json
-{
-  "error": "Digest video is not ready yet"
-}
-```
+---
 
-**エラー (404)**
+### GET /api/jobs
 
-```json
-{
-  "error": "Job not found"
-}
-```
+簡易ジョブ一覧（履歴画面用）。MVPでは最近20件を返却。
+
+#### Response (200)
 
 ```json
 {
-  "error": "Digest video file not found"
+  "jobs": [
+    {
+      "id": "...",
+      "status": "completed",
+      "clipLengthSeconds": 10,
+      "createdAt": "...",
+      "completedAt": "..."
+    }
+  ]
 }
 ```
 
 ---
 
-### GET /api/jobs/[jobId]/article
-
-ダイジェスト記事（Markdown形式）を取得する。
-
-#### Response
-
-**成功 (200)**
-
-- Content-Type: `text/markdown; charset=utf-8`
-- Body: Markdown形式の記事テキスト
-
-**エラー (400)**
+### エラーレスポンス共通
 
 ```json
 {
-  "error": "Article is not ready yet"
-}
-```
-
-**エラー (404)**
-
-```json
-{
-  "error": "Job not found"
-}
-```
-
-```json
-{
-  "error": "Article file not found"
-}
-```
-
----
-
-### GET /api/jobs/[jobId]/screenshots/[filename]
-
-セグメントのスクリーンショット画像を取得する。
-
-#### Parameters
-
-- `filename`: `segment_N.jpg` 形式（N は 0 始まりのインデックス）
-
-#### Response
-
-**成功 (200)**
-
-- Content-Type: `image/jpeg`
-- Cache-Control: `public, max-age=31536000, immutable`
-- Body: JPEG画像のバイナリ
-
-**エラー (400)**
-
-```json
-{
-  "error": "Invalid filename"
-}
-```
-
-**エラー (404)**
-
-```json
-{
-  "error": "Job not found"
-}
-```
-
-```json
-{
-  "error": "Screenshot file not found"
-}
-```
-
----
-
-### GET /api/jobs/[jobId]/article/download
-
-ダイジェスト記事とスクリーンショットをZIP形式でダウンロードする。
-
-#### Response
-
-**成功 (200)**
-
-- Content-Type: `application/zip`
-- Content-Disposition: `attachment; filename="article-{jobId}.zip"`
-- Body: ZIPファイルのバイナリストリーム
-
-ZIP構成:
-
-```
-article.md
-screenshots/
-  segment_0.jpg
-  segment_1.jpg
-  ...
-```
-
-**エラー (400)**
-
-```json
-{
-  "error": "Article is not ready yet"
-}
-```
-
-**エラー (404)**
-
-```json
-{
-  "error": "Job not found"
-}
-```
-
-```json
-{
-  "error": "Article file not found"
+  "error": "..."
 }
 ```

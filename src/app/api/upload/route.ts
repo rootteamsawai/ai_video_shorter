@@ -9,6 +9,8 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("video") as File | null;
+    const clipLengthSeconds = Number(formData.get("clipLengthSeconds"));
+    const candidateCountRaw = formData.get("candidateCount");
 
     if (!file) {
       return NextResponse.json(
@@ -16,6 +18,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    if (!Number.isFinite(clipLengthSeconds) || clipLengthSeconds < 3) {
+      return NextResponse.json(
+        { error: "clipLengthSeconds is required" },
+        { status: 400 }
+      );
+    }
+
+    const candidateCount = Math.min(
+      5,
+      Math.max(
+        1,
+        candidateCountRaw ? Number(candidateCountRaw) || 3 : 3
+      )
+    );
 
     // ファイル形式のバリデーション
     if (!file.type.startsWith("video/") && !file.name.endsWith(".mp4")) {
@@ -45,7 +62,10 @@ export async function POST(request: NextRequest) {
     await saveFile(videoPath, buffer);
 
     // ジョブを作成
-    await createJob(jobId);
+    await createJob(jobId, {
+      clipLengthSeconds,
+      candidateCount,
+    });
 
     // Inngest イベントを発火
     await inngest.send({

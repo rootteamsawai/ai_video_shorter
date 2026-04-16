@@ -8,9 +8,10 @@ type Props = {
 };
 
 const STEPS = [
-  { status: "transcribing" as const, label: "文字起こし中" },
-  { status: "analyzing" as const, label: "パンチライン分析中" },
-  { status: "generating" as const, label: "ダイジェスト生成中" },
+  { status: "transcribing" as const, label: "文字起こし" },
+  { status: "proposing" as const, label: "候補抽出" },
+  { status: "awaiting_selection" as const, label: "ユーザー選択" },
+  { status: "rendering" as const, label: "書き出し" },
   { status: "completed" as const, label: "完了" },
 ];
 
@@ -24,7 +25,6 @@ export function ProgressDisplay({ status, progress }: Props) {
 
   return (
     <div className="w-full">
-      {/* プログレスバー */}
       <div className="w-full bg-gray-200 rounded-full h-3 mb-6">
         <div
           className="bg-blue-600 h-3 rounded-full transition-all duration-500"
@@ -32,7 +32,6 @@ export function ProgressDisplay({ status, progress }: Props) {
         />
       </div>
 
-      {/* ステップ表示 */}
       <div className="space-y-3">
         {STEPS.map((step, index) => {
           const isCompleted = index < currentStepIndex;
@@ -57,16 +56,12 @@ export function ProgressDisplay({ status, progress }: Props) {
               >
                 {isCompleted ? "✓" : index + 1}
               </div>
-              <span
-                className={`${
-                  isCurrent ? "font-medium" : ""
-                } ${isCompleted ? "line-through" : ""}`}
-              >
+              <span className={`${isCurrent ? "font-medium" : ""}`}>
                 {step.label}
               </span>
-              {isCurrent && (
+              {isCurrent && step.status !== "completed" && (
                 <span className="animate-pulse text-blue-600 text-sm">
-                  処理中...
+                  進行中...
                 </span>
               )}
             </div>
@@ -74,10 +69,7 @@ export function ProgressDisplay({ status, progress }: Props) {
         })}
       </div>
 
-      {/* 進捗率表示 */}
-      <div className="mt-6 text-center text-gray-500">
-        進捗: {progress}%
-      </div>
+      <div className="mt-6 text-center text-gray-500">進捗: {progress}%</div>
     </div>
   );
 }

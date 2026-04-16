@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { getJob } from "@/lib/job-store";
-import { getDigestVideoPath, fileExists } from "@/lib/storage";
+import { getClipVideoPath, fileExists } from "@/lib/storage";
 
 type RouteParams = {
   params: Promise<{ jobId: string }>;
@@ -19,21 +19,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   if (job.status !== "completed") {
     return NextResponse.json(
-      { error: "Digest video is not ready yet" },
+      { error: "Clip is not ready yet" },
       { status: 400 }
     );
   }
 
-  const digestPath = getDigestVideoPath(jobId);
+  const clipPath = getClipVideoPath(jobId);
 
-  if (!(await fileExists(digestPath))) {
+  if (!(await fileExists(clipPath))) {
     return NextResponse.json(
-      { error: "Digest video file not found" },
+      { error: "Clip file not found" },
       { status: 404 }
     );
   }
 
-  const stats = await stat(digestPath);
+  const stats = await stat(clipPath);
   const fileSize = stats.size;
   const rangeHeader = request.headers.get("range");
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
 
       const chunkSize = end - start + 1;
-      const stream = createReadStream(digestPath, { start, end });
+      const stream = createReadStream(clipPath, { start, end });
       const webStream = nodeStreamToWeb(stream);
 
       return new NextResponse(webStream, {
@@ -70,14 +70,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 
   // Range なしの場合は全体を返す
-  const stream = createReadStream(digestPath);
+  const stream = createReadStream(clipPath);
   const webStream = nodeStreamToWeb(stream);
 
   return new NextResponse(webStream, {
     status: 200,
     headers: {
       "Content-Type": "video/mp4",
-      "Content-Disposition": `attachment; filename="digest-${jobId}.mp4"`,
+      "Content-Disposition": `attachment; filename="clip-${jobId}.mp4"`,
       "Content-Length": fileSize.toString(),
       "Accept-Ranges": "bytes",
     },
