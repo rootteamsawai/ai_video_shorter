@@ -47,7 +47,27 @@ async function withLogging(
   });
 
   try {
-    return await target(request, context);
+    const response = await target(request, context);
+    let responsePreview: string | null = null;
+
+    try {
+      const responseClone = response.clone();
+      responsePreview = await responseClone.text();
+    } catch (responseCloneError) {
+      console.error(
+        `[inngest:${method}] failed to clone response body`,
+        responseCloneError
+      );
+    }
+
+    console.log(`[inngest:${method}] response`, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      responsePreview,
+    });
+
+    return response;
   } catch (error) {
     console.error(`[inngest:${method}] handler error`, error);
     throw error;
