@@ -27,6 +27,25 @@ async function withLogging(
     return new Response("Not found", { status: 404 });
   }
 
+  let bodyPreview: string | null = null;
+
+  if (request.method !== "GET" && request.body !== null) {
+    try {
+      const clone = request.clone();
+      bodyPreview = await clone.text();
+    } catch (cloneError) {
+      console.error(`[inngest:${method}] failed to clone request body`, cloneError);
+    }
+  }
+
+  console.log(`[inngest:${method}] incoming`, {
+    url: request.url,
+    method: request.method,
+    contentLength: request.headers.get("content-length"),
+    contentType: request.headers.get("content-type"),
+    bodyPreview,
+  });
+
   try {
     return await target(request, context);
   } catch (error) {
