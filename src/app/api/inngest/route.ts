@@ -6,10 +6,26 @@ import {
   renderShortClip,
 } from "@/inngest/functions/process-video";
 
+console.log("[inngest] prepareShortClip type", typeof prepareShortClip);
+console.log("[inngest] renderShortClip type", typeof renderShortClip);
+
+try {
+  const sampleConfig = { baseUrl: new URL("https://example.com"), appPrefix: inngest.id };
+  const prepareFn = prepareShortClip as { getConfig?: (args: unknown) => { id: string }[] };
+  const renderFn = renderShortClip as { getConfig?: (args: unknown) => { id: string }[] };
+  const prepareIds = prepareFn?.getConfig ? prepareFn.getConfig(sampleConfig).map((cfg) => cfg.id) : [];
+  const renderIds = renderFn?.getConfig ? renderFn.getConfig(sampleConfig).map((cfg) => cfg.id) : [];
+  console.log("[inngest] function ids", { prepareIds, renderIds });
+} catch (configError) {
+  console.error("[inngest] failed to read function config", configError);
+}
+
 const handler = serve({
   client: inngest,
   functions: [prepareShortClip, renderShortClip],
 });
+
+console.log("[inngest] registered functions", Object.keys(handler));
 
 type Method = keyof typeof handler;
 
