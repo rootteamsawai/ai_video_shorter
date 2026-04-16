@@ -12,7 +12,7 @@ function getAnthropic(): Anthropic {
 }
 
 const CLAUDE_MODEL =
-  process.env.CLAUDE_MODEL ?? "claude-3-sonnet-20240229";
+  process.env.CLAUDE_MODEL ?? "claude-3-haiku-20240307";
 
 const SYSTEM_PROMPT = `あなたは動画編集プラットフォームのアシスタントです。\nセミナーやトーク動画の文字起こしを分析し、指定された秒数に最適なショートクリップ候補を提案してください。\n必ずJSONのみを返し、余計な説明テキストは書かないでください。\n\n各候補は以下を含めてください:\n- start_seconds (number)\n- end_seconds (number)\n- headline (jp)\n- reason (jp)\n- confidence (0-1 float)\n\nstart/endは必ず動画尺内に収め、end > startとしてください。`;
 
