@@ -19,7 +19,7 @@ import { cutVideoWithSubtitles } from "@/lib/ffmpeg";
 import type { TranscriptChunk } from "@/types";
 
 export const prepareShortClip = inngest.createFunction(
-  { id: "prepare-short-clip" },
+  { id: "ai-video-shorter-process-video" },
   { event: "video/uploaded" },
   async ({ event, step }) => {
     const { jobId } = event.data as { jobId: string };
@@ -35,14 +35,21 @@ export const prepareShortClip = inngest.createFunction(
         const videoPath = getOriginalVideoPath(jobId);
         const jobDir = getJobDir(jobId);
 
-        const result = await transcribeVideo(videoPath, jobDir, async (current, total) => {
-          if (total > 1 && total > 0) {
-            const progress = 10 + Math.floor((current / total) * 30);
-            await updateJobStatus(jobId, "transcribing", progress);
+        const result = await transcribeVideo(
+          videoPath,
+          jobDir,
+          async (current, total) => {
+            if (total > 1 && total > 0) {
+              const progress = 10 + Math.floor((current / total) * 30);
+              await updateJobStatus(jobId, "transcribing", progress);
+            }
           }
-        });
+        );
 
-        await fs.writeFile(getTranscriptPath(jobId), JSON.stringify(result, null, 2));
+        await fs.writeFile(
+          getTranscriptPath(jobId),
+          JSON.stringify(result, null, 2)
+        );
         await updateJobStatus(jobId, "transcribing", 40);
         return result;
       });
@@ -88,14 +95,23 @@ export const renderShortClip = inngest.createFunction(
       await step.run("render", async () => {
         await updateJobStatus(jobId, "rendering", 80);
 
-        const transcriptBuffer = await fs.readFile(getTranscriptPath(jobId), "utf-8");
+        const transcriptBuffer = await fs.readFile(
+          getTranscriptPath(jobId),
+          "utf-8"
+        );
         const transcript: TranscriptChunk[] = JSON.parse(transcriptBuffer);
         const subtitles = sliceTranscript(transcript, start, end);
 
         const videoPath = getOriginalVideoPath(jobId);
         const clipPath = getClipVideoPath(jobId);
 
-        await cutVideoWithSubtitles(videoPath, clipPath, start, end, subtitles);
+        await cutVideoWithSubtitles(
+          videoPath,
+          clipPath,
+          start,
+          end,
+          subtitles
+        );
         await updateJobStatus(jobId, "completed", 100);
       });
 
