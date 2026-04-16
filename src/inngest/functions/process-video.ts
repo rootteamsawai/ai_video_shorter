@@ -83,7 +83,7 @@ const handlePrepareShortClip = async ({ event, step }: PrepareContext) => {
 };
 
 export const legacyProcessVideo = inngest.createFunction(
-  { id: "ai-video-shorter-process-video" },
+  { id: "process-video" },
   { event: "video/uploaded" },
   handlePrepareShortClip
 );
