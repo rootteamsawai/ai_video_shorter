@@ -7,10 +7,28 @@ import {
   renderShortClip,
 } from "@/inngest/functions/process-video";
 
+const describeFunctionIds = (fn: unknown) => {
+  try {
+    const getConfig = (fn as { getConfig?: (args: unknown) => { id: string }[] }).getConfig;
+    if (!getConfig) {
+      return [];
+    }
+    const configs =
+      getConfig({ baseUrl: new URL("https://example.com"), appPrefix: inngest.id }) ?? [];
+    return configs.map((cfg) => cfg.id);
+  } catch (error) {
+    console.error("[inngest] failed to read function config", error);
+    return [];
+  }
+};
+
 console.log("[inngest] function exports", {
   legacyProcessVideo: typeof legacyProcessVideo,
   prepareShortClip: typeof prepareShortClip,
   renderShortClip: typeof renderShortClip,
+  legacyIds: describeFunctionIds(legacyProcessVideo),
+  prepareIds: describeFunctionIds(prepareShortClip),
+  renderIds: describeFunctionIds(renderShortClip),
 });
 
 const handler = serve({
