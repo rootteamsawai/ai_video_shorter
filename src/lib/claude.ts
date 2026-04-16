@@ -11,6 +11,9 @@ function getAnthropic(): Anthropic {
   return anthropicClient;
 }
 
+const CLAUDE_MODEL =
+  process.env.CLAUDE_MODEL ?? "claude-3-sonnet-20240229";
+
 const SYSTEM_PROMPT = `あなたは動画編集プラットフォームのアシスタントです。\nセミナーやトーク動画の文字起こしを分析し、指定された秒数に最適なショートクリップ候補を提案してください。\n必ずJSONのみを返し、余計な説明テキストは書かないでください。\n\n各候補は以下を含めてください:\n- start_seconds (number)\n- end_seconds (number)\n- headline (jp)\n- reason (jp)\n- confidence (0-1 float)\n\nstart/endは必ず動画尺内に収め、end > startとしてください。`;
 
 type CandidatePayload = {
@@ -43,7 +46,7 @@ export async function generateClipCandidates(
   const userPrompt = `以下の文字起こしから、${clipLengthSeconds}秒前後の見せ場を${candidateCount}候補提案してください。\nそれぞれ必ずJSONの配列で返し、候補が十分でない場合は空配列にしてください。\n\n## 制約\n- start/end は秒数 (float) で出力する\n- duration は ${clipLengthSeconds}秒に近づける（±1.5秒以内を推奨）\n- headline は視聴者が惹かれる短いコピー\n- reason は30字前後の日本語の説明\n\n## 文字起こし\n${transcript}`;
 
   const response = await getAnthropic().messages.create({
-    model: "claude-3-5-sonnet-20240620",
+    model: CLAUDE_MODEL,
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
     messages: [
