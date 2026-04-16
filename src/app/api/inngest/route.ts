@@ -7,6 +7,12 @@ import {
   renderShortClip,
 } from "@/inngest/functions/process-video";
 
+console.log("[inngest] function exports", {
+  legacyProcessVideo: typeof legacyProcessVideo,
+  prepareShortClip: typeof prepareShortClip,
+  renderShortClip: typeof renderShortClip,
+});
+
 const handler = serve({
   client: inngest,
   functions: [legacyProcessVideo, prepareShortClip, renderShortClip],
