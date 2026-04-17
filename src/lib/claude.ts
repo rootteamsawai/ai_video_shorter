@@ -26,6 +26,17 @@ type CandidatePayload = {
   }>;
 };
 
+
+type CandidateResponse = CandidatePayload | CandidatePayload["candidates"];
+
+function isCandidatePayload(value: CandidateResponse): value is CandidatePayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as CandidatePayload).candidates)
+  );
+}
+
 function sanitizeConfidence(value: number): number {
   if (Number.isNaN(value)) return 0.5;
   if (value > 1) {
@@ -86,19 +97,24 @@ export async function generateClipCandidates(
 
   const jsonText = extractJsonContent(textContent.text);
 
-  let parsed: CandidatePayload;
+  let parsed: CandidateResponse;
   try {
     parsed = JSON.parse(jsonText) as CandidatePayload;
-  } catch (error) {
+  } catch (_error) {
     const snippet = jsonText.slice(0, 120);
     throw new Error(`Claude response was not valid JSON: ${snippet}`);
   }
 
-  if (!parsed.candidates || !Array.isArray(parsed.candidates)) {
+  let candidateList: CandidatePayload["candidates"];
+  if (isCandidatePayload(parsed)) {
+    candidateList = (parsed as CandidatePayload).candidates;
+  } else if (Array.isArray(parsed)) {
+    candidateList = parsed as CandidatePayload["candidates"];
+  } else {
     throw new Error("Invalid Claude response: candidates missing");
   }
 
-  return parsed.candidates.slice(0, candidateCount).map((candidate, index) => {
+  return candidateList.slice(0, candidateCount).map((candidate, index) => {
     const start = Math.max(0, candidate.start_seconds ?? 0);
     const end = Math.max(start + 0.5, candidate.end_seconds ?? start);
     const duration = end - start;
