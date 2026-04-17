@@ -1,7 +1,8 @@
 import ffmpeg from "fluent-ffmpeg";
 import { promises as fs } from "fs";
 import path from "path";
-import type { TranscriptChunk } from "@/types";
+import type { AspectMode, TranscriptChunk } from "@/types";
+type FilterSpecification = import("fluent-ffmpeg").FilterSpecification;
 
 export function timeToSeconds(time: string): number {
   const parts = time.split(":").map(Number);
@@ -147,7 +148,8 @@ export async function cutVideoWithSubtitles(
   outputPath: string,
   startSeconds: number,
   endSeconds: number,
-  subtitles: TranscriptChunk[]
+  subtitles: TranscriptChunk[],
+  aspectMode: AspectMode = "original"
 ): Promise<void> {
   const duration = endSeconds - startSeconds;
   const outputDir = path.dirname(outputPath);
@@ -164,19 +166,26 @@ export async function cutVideoWithSubtitles(
   const subtitleStyle =
     "FontName=Noto Sans JP,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=4,Outline=3,Shadow=0,MarginL=20,MarginR=20,MarginV=40";
 
+  const filters: (string | FilterSpecification)[] = [
+    {
+      filter: "subtitles",
+      options: {
+        filename: escapedSrtPath,
+        force_style: subtitleStyle,
+      },
+    },
+  ];
+
+  if (aspectMode === "vertical_pillarbox") {
+    filters.push("scale=1080:-2");
+    filters.push("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black");
+  }
+
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .setStartTime(startSeconds)
       .setDuration(duration)
-      .videoFilters([
-        {
-          filter: "subtitles",
-          options: {
-            filename: escapedSrtPath,
-            force_style: subtitleStyle,
-          },
-        },
-      ])
+      .videoFilters(filters)
       .outputOptions(["-c:v", "libx264", "-c:a", "aac", "-preset", "fast"])
       .output(outputPath)
       .on("end", async () => {

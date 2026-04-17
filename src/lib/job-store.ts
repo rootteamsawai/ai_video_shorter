@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { ClipCandidate, Job, JobStatus, SelectedClip } from "@/types";
+import type { AspectMode, ClipCandidate, Job, JobStatus, SelectedClip } from "@/types";
 import { STORAGE_PATH, validateJobId } from "./storage";
 
 function getJobFilePath(jobId: string): string {
@@ -18,6 +18,7 @@ async function writeJob(job: Job): Promise<void> {
 export type CreateJobOptions = {
   clipLengthSeconds: number;
   candidateCount: number;
+  aspectMode?: AspectMode;
 };
 
 export async function createJob(
@@ -33,6 +34,7 @@ export async function createJob(
     candidateCount: options.candidateCount,
     candidates: null,
     selectedClip: null,
+    aspectMode: options.aspectMode ?? "original",
   };
 
   await writeJob(job);
@@ -50,6 +52,9 @@ export async function getJob(jobId: string): Promise<Job | null> {
     }
     if (typeof parsed.candidateCount !== "number") {
       parsed.candidateCount = 3;
+    }
+    if (!parsed.aspectMode) {
+      parsed.aspectMode = "original";
     }
     return parsed;
   } catch {

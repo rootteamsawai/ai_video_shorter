@@ -1,3 +1,5 @@
+export type AspectMode = "original" | "vertical_pillarbox";
+
 /** ジョブのステータス */
 export type JobStatus =
   | "pending"
@@ -37,6 +39,7 @@ export type Job = {
   candidateCount: number;
   candidates?: ClipCandidate[] | null;
   selectedClip?: SelectedClip | null;
+  aspectMode?: AspectMode;
 };
 
 /** 文字起こしチャンク */

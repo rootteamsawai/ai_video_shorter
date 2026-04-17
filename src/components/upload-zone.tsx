@@ -15,6 +15,7 @@ export function UploadZone({ onUploadComplete }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [clipLengthSeconds, setClipLengthSeconds] = useState(10);
   const [candidateCount, setCandidateCount] = useState(3);
+  const [aspectMode, setAspectMode] = useState<"original" | "vertical_pillarbox">("original");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -50,6 +51,7 @@ export function UploadZone({ onUploadComplete }: Props) {
       formData.append("video", file);
       formData.append("clipLengthSeconds", clipLengthSeconds.toString());
       formData.append("candidateCount", candidateCount.toString());
+      formData.append("aspectMode", aspectMode);
 
       try {
         const xhr = new XMLHttpRequest();
@@ -88,7 +90,7 @@ export function UploadZone({ onUploadComplete }: Props) {
         setIsUploading(false);
       }
     },
-    [candidateCount, clipLengthSeconds, onUploadComplete]
+    [candidateCount, clipLengthSeconds, aspectMode, onUploadComplete]
   );
 
   const handleDrop = useCallback(
@@ -130,6 +132,10 @@ export function UploadZone({ onUploadComplete }: Props) {
     if (Number.isFinite(value)) {
       setCandidateCount(Math.min(5, Math.max(1, Math.round(value))));
     }
+  };
+
+  const updateAspectMode = (value: "original" | "vertical_pillarbox") => {
+    setAspectMode(value);
   };
 
   return (
@@ -194,6 +200,36 @@ export function UploadZone({ onUploadComplete }: Props) {
           </div>
           <p className="text-xs text-gray-500 mt-1">
             最大5件まで。迷いたいほど候補を出せます。
+          </p>
+        </div>
+
+        <div className="w-full md:w-64">
+          <p className="text-sm font-semibold text-gray-700 mb-2">
+            出力アスペクト
+          </p>
+          <div className="flex gap-3">
+            {(["original", "vertical_pillarbox"] as const).map((mode) => {
+              const isActive = aspectMode === mode;
+              const label = mode === "original" ? "横長 (そのまま)" : "縦型 (上下に黒)";
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => updateAspectMode(mode)}
+                  className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-gray-300 text-gray-600 hover:border-blue-400"
+                  }${isUploading ? " opacity-60 pointer-events-none" : ""}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            縦型にすると中央に原寸を配置し、上下を黒帯で整えます。
           </p>
         </div>
       </div>

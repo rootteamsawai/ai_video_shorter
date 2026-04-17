@@ -7,7 +7,7 @@ import {
 } from "@/lib/storage";
 import { cutVideoWithSubtitles } from "@/lib/ffmpeg";
 import { sliceTranscript } from "@/lib/whisper";
-import type { TranscriptChunk } from "@/types";
+import type { AspectMode, TranscriptChunk } from "@/types";
 
 export async function renderClip(jobId: string): Promise<void> {
   const job = await getJob(jobId);
@@ -16,6 +16,7 @@ export async function renderClip(jobId: string): Promise<void> {
   }
 
   const { start, end } = job.selectedClip;
+  const aspectMode: AspectMode = job.aspectMode ?? "original";
 
   try {
     await updateJobStatus(jobId, "rendering", 80);
@@ -30,7 +31,7 @@ export async function renderClip(jobId: string): Promise<void> {
     const videoPath = getOriginalVideoPath(jobId);
     const clipPath = getClipVideoPath(jobId);
 
-    await cutVideoWithSubtitles(videoPath, clipPath, start, end, subtitles);
+    await cutVideoWithSubtitles(videoPath, clipPath, start, end, subtitles, aspectMode);
     await updateJobStatus(jobId, "completed", 100);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

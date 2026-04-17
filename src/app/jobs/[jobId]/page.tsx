@@ -241,6 +241,7 @@ export default function JobPage({ params }: Props) {
           {formatSeconds(job.selectedClip.start)} – {formatSeconds(job.selectedClip.end)}
         </p>
         <p>尺: {(job.selectedClip.end - job.selectedClip.start).toFixed(2)} 秒</p>
+        <p className="text-xs text-slate-500">出力: {job.aspectMode === "vertical_pillarbox" ? "縦型 (上下黒)" : "横長"}</p>
       </div>
       {clipDetails && (
         <div className="text-slate-900">

@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get("video") as File | null;
     const clipLengthSeconds = Number(formData.get("clipLengthSeconds"));
     const candidateCountRaw = formData.get("candidateCount");
+    const aspectModeRaw = formData.get("aspectMode");
 
     if (!file) {
       return NextResponse.json(
@@ -53,6 +54,8 @@ export async function POST(request: NextRequest) {
     // ジョブIDを生成
     const jobId = crypto.randomUUID();
 
+    const aspectMode = aspectModeRaw === "vertical_pillarbox" ? "vertical_pillarbox" : "original";
+
     // ジョブディレクトリを作成
     await createJobDir(jobId);
 
@@ -65,6 +68,7 @@ export async function POST(request: NextRequest) {
     await createJob(jobId, {
       clipLengthSeconds,
       candidateCount,
+      aspectMode,
     });
 
     // Inngest イベントを発火
