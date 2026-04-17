@@ -164,7 +164,7 @@ export async function cutVideoWithSubtitles(
 
   const escapedSrtPath = srtPath.replace(/([\\':[\]])/g, "\\$1");
   const subtitleStyle =
-    "FontName=Noto Sans JP,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=4,Outline=3,Shadow=0,MarginL=20,MarginR=20,MarginV=40";
+    "FontName=Noto Sans JP,FontSize=46,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BackColour=&H80212121,BorderStyle=4,Outline=6,Shadow=0,Alignment=2,MarginL=60,MarginR=60,MarginV=120";
 
   const filters: AudioVideoFilter[] = [
     {
