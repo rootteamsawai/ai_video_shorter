@@ -17,6 +17,7 @@ import { transcribeVideo, sliceTranscript } from "@/lib/whisper";
 import { generateClipCandidates } from "@/lib/claude";
 import { cutVideoWithSubtitles } from "@/lib/ffmpeg";
 import type { TranscriptChunk } from "@/types";
+import { renderClip } from "@/lib/render";
 
 type PrepareContext = {
   event: { data: { jobId: string } };
@@ -99,7 +100,16 @@ export const renderShortClip = inngest.createFunction(
   { event: "clip/selected" },
   async ({ event, step }) => {
     const { jobId } = event.data as { jobId: string };
-    const job = await getJob(jobId);
+    try {
+      await step.run("render", () => renderClip(jobId));
+      return { success: true, jobId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      await setJobError(jobId, message);
+      throw error;
+    }
+  }
+);
     if (!job || !job.selectedClip) {
       throw new Error(`Job ${jobId} not ready for rendering`);
     }

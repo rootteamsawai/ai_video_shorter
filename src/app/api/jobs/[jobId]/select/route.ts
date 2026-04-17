@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { inngest } from "@/inngest/client";
 import {
   getJob,
   setJobSelectedClip,
-  updateJobStatus,
 } from "@/lib/job-store";
+import { renderClip } from "@/lib/render";
 
 const ADJUSTMENT_LIMIT = 2; // seconds
 const DURATION_TOLERANCE = 1.5; // seconds
@@ -72,11 +71,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   await setJobSelectedClip(jobId, { candidateId, start, end });
-  await updateJobStatus(jobId, "rendering", 80);
-
-  await inngest.send({
-    name: "clip/selected",
-    data: { jobId },
+  renderClip(jobId).catch((error) => {
+    console.error("renderClip error", error);
   });
 
   return NextResponse.json({ id: jobId, status: "rendering" });
