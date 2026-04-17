@@ -100,7 +100,7 @@ export async function generateClipCandidates(
   let parsed: CandidateResponse;
   try {
     parsed = JSON.parse(jsonText) as CandidatePayload;
-  } catch (_error) {
+  } catch {
     const snippet = jsonText.slice(0, 120);
     throw new Error(`Claude response was not valid JSON: ${snippet}`);
   }
@@ -111,6 +111,7 @@ export async function generateClipCandidates(
   } else if (Array.isArray(parsed)) {
     candidateList = parsed as CandidatePayload["candidates"];
   } else {
+    console.error("[claude] unexpected response", jsonText);
     throw new Error("Invalid Claude response: candidates missing");
   }
 
