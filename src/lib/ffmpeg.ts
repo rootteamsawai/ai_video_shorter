@@ -2,7 +2,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { promises as fs } from "fs";
 import path from "path";
 import type { AspectMode, TranscriptChunk } from "@/types";
-type FilterSpecification = import("fluent-ffmpeg").FilterSpecification;
+type AudioVideoFilter = import("fluent-ffmpeg").AudioVideoFilter;
 
 export function timeToSeconds(time: string): number {
   const parts = time.split(":").map(Number);
@@ -166,7 +166,7 @@ export async function cutVideoWithSubtitles(
   const subtitleStyle =
     "FontName=Noto Sans JP,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=4,Outline=3,Shadow=0,MarginL=20,MarginR=20,MarginV=40";
 
-  const filters: (string | FilterSpecification)[] = [
+  const filters: AudioVideoFilter[] = [
     {
       filter: "subtitles",
       options: {
@@ -177,8 +177,8 @@ export async function cutVideoWithSubtitles(
   ];
 
   if (aspectMode === "vertical_pillarbox") {
-    filters.push("scale=1080:-2");
-    filters.push("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black");
+    filters.push({ filter: "scale", options: "1080:-2" });
+    filters.push({ filter: "pad", options: "1080:1920:(ow-iw)/2:(oh-ih)/2:black" });
   }
 
   return new Promise((resolve, reject) => {
