@@ -36,6 +36,28 @@ function sanitizeConfidence(value: number): number {
   return value;
 }
 
+function extractJsonContent(raw: string): string {
+  let content = raw.trim();
+  const fencedMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch) {
+    return fencedMatch[1].trim();
+  }
+
+  const startMatch = content.match(/[\[{]/);
+  if (startMatch?.index !== undefined) {
+    content = content.slice(startMatch.index);
+  }
+
+  const lastSquare = content.lastIndexOf("]");
+  const lastCurly = content.lastIndexOf("}");
+  const lastIndex = Math.max(lastSquare, lastCurly);
+  if (lastIndex !== -1) {
+    content = content.slice(0, lastIndex + 1);
+  }
+
+  return content.trim();
+}
+
 export async function generateClipCandidates(
   chunks: TranscriptChunk[],
   clipLengthSeconds: number,
@@ -62,13 +84,16 @@ export async function generateClipCandidates(
     throw new Error("Claude API returned no text content");
   }
 
-  let jsonText = textContent.text.trim();
-  const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (match) {
-    jsonText = match[1].trim();
+  const jsonText = extractJsonContent(textContent.text);
+
+  let parsed: CandidatePayload;
+  try {
+    parsed = JSON.parse(jsonText) as CandidatePayload;
+  } catch (error) {
+    const snippet = jsonText.slice(0, 120);
+    throw new Error(`Claude response was not valid JSON: ${snippet}`);
   }
 
-  const parsed = JSON.parse(jsonText) as CandidatePayload;
   if (!parsed.candidates || !Array.isArray(parsed.candidates)) {
     throw new Error("Invalid Claude response: candidates missing");
   }
