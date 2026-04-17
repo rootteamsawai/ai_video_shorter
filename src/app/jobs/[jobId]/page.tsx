@@ -20,6 +20,13 @@ function formatSeconds(value: number): string {
 
 type Tab = "status" | "preview";
 
+type ClipDetails = {
+  start: number;
+  end: number;
+  duration: number;
+  text: string;
+};
+
 type Props = {
   params: Promise<{ jobId: string }>;
 };
@@ -28,6 +35,8 @@ export default function JobPage({ params }: Props) {
   const { jobId } = use(params);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clipDetails, setClipDetails] = useState<ClipDetails | null>(null);
+  const [clipDetailsError, setClipDetailsError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("status");
   const [activeCandidate, setActiveCandidate] = useState<ClipCandidate | null>(
     null
@@ -83,6 +92,31 @@ export default function JobPage({ params }: Props) {
   }, [jobId, shouldPoll]);
 
   useEffect(() => {
+    if (job?.status === "completed" && job.selectedClip) {
+      const controller = new AbortController();
+      setClipDetails(null);
+      setClipDetailsError(null);
+      fetch(`/api/jobs/${jobId}/snippet`, { signal: controller.signal })
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error('failed');
+          }
+          return res.json();
+        })
+        .then((payload) => {
+          setClipDetails(payload);
+        })
+        .catch(() => {
+          setClipDetailsError('文字起こしを取得できませんでした');
+        });
+      return () => controller.abort();
+    }
+    setClipDetails(null);
+    return undefined;
+  }, [job, jobId]);
+
+  useEffect(() => {
+
     if (!activeCandidate) {
       setStartValue(null);
       setEndValue(null);
@@ -200,12 +234,23 @@ export default function JobPage({ params }: Props) {
     : null;
 
   const selectionSummary = job.selectedClip && (
-    <div className="p-4 bg-slate-50 rounded-lg flex flex-col gap-1 text-sm text-slate-700">
-      <span className="font-semibold text-slate-900">選択済みクリップ</span>
-      <span>
-        {formatSeconds(job.selectedClip.start)} – {formatSeconds(job.selectedClip.end)}
-      </span>
-      <span>尺: {(job.selectedClip.end - job.selectedClip.start).toFixed(2)} 秒</span>
+    <div className="p-4 bg-slate-50 rounded-lg flex flex-col gap-2 text-sm text-slate-700">
+      <div>
+        <p className="font-semibold text-slate-900">選択済みクリップ</p>
+        <p>
+          {formatSeconds(job.selectedClip.start)} – {formatSeconds(job.selectedClip.end)}
+        </p>
+        <p>尺: {(job.selectedClip.end - job.selectedClip.start).toFixed(2)} 秒</p>
+      </div>
+      {clipDetails && (
+        <div className="text-slate-900">
+          <p className="text-xs font-semibold text-slate-500 mb-1">この区間のトーク</p>
+          <p className="leading-relaxed whitespace-pre-line">{clipDetails.text || "該当するトークが見つかりませんでした"}</p>
+        </div>
+      )}
+      {clipDetailsError && (
+        <p className="text-xs text-red-500">{clipDetailsError}</p>
+      )}
     </div>
   );
 

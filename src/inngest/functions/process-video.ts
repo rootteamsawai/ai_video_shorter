@@ -8,14 +8,13 @@ import {
 } from "@/lib/job-store";
 import {
   getCandidatesPath,
-  getClipVideoPath,
+
   getJobDir,
   getOriginalVideoPath,
   getTranscriptPath,
 } from "@/lib/storage";
-import { transcribeVideo, sliceTranscript } from "@/lib/whisper";
+import { transcribeVideo } from "@/lib/whisper";
 import { generateClipCandidates } from "@/lib/claude";
-import { cutVideoWithSubtitles } from "@/lib/ffmpeg";
 import type { TranscriptChunk } from "@/types";
 import { renderClip } from "@/lib/render";
 
