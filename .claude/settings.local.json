@@ -3,7 +3,8 @@
     "allow": [
       "Skill(explain)",
       "Skill(design-review)",
-      "Skill(code-review)"
+      "Skill(code-review)",
+      "Skill(implement)"
     ]
   }
 }
